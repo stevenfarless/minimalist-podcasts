@@ -1,0 +1,1724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
+  <title>Podcast Player</title>
+</head>
+<body>
+  <header>
+    <h1>Podcast Player</h1>
+  </header>
+
+  <main>
+    <section aria-label="Podcast search">
+      <form id="search-form">
+        <p><label for="search-query">Search podcasts by title, subject, or creator</label></p>
+        <p><input id="search-query" name="q" type="search" required maxlength="200" autocomplete="off" size="40"></p>
+        <p><button type="submit" id="search-button">Search Podcasts</button></p>
+      </form>
+      <p id="search-status" role="status" aria-live="polite"></p>
+      <details id="search-section">
+        <summary>Podcast Search Results</summary>
+        <p id="search-results-navigation" hidden><button type="button" id="back-to-search-results">Back to All Search Results</button></p>
+        <ol id="search-results"></ol>
+      </details>
+    </section>
+
+    <hr>
+
+    <details id="rss-section">
+      <summary>Add a Podcast by RSS Address</summary>
+      <fieldset>
+        <form id="rss-form">
+          <p><label for="rss-url">Public RSS or Atom feed URL</label></p>
+          <p><input id="rss-url" name="rss" type="url" inputmode="url" placeholder="https://example.com/podcast.rss" required size="48"></p>
+          <p><button type="submit">Add Feed</button></p>
+        </form>
+        <p>Use this for a podcast that is missing from the searchable catalogues. The feed must be publicly accessible.</p>
+        <p id="rss-status" role="status" aria-live="polite"></p>
+      </fieldset>
+    </details>
+
+    <hr>
+
+    <details id="library-section">
+      <summary>Your Library</summary>
+      <fieldset>
+        <p id="library-empty">You have not subscribed to any shows yet.</p>
+        <ul id="library-list"></ul>
+      </fieldset>
+    </details>
+
+    <hr>
+
+    <details id="latest-section">
+      <summary>Latest Episodes</summary>
+      <fieldset>
+        <p id="latest-status" role="status" aria-live="polite">Open this section to check your subscriptions for new episodes.</p>
+        <p><button type="button" id="refresh-latest">Refresh Latest Episodes</button></p>
+        <p id="latest-empty">Subscribe to podcasts to see their latest unplayed episodes here.</p>
+        <ol id="latest-list"></ol>
+      </fieldset>
+    </details>
+
+    <hr>
+
+    <details id="queue-section">
+      <summary>Playback Queue</summary>
+      <fieldset>
+        <p id="queue-empty">Your queue is empty. Add episodes with the “Add to Queue” button.</p>
+        <ol id="queue-list"></ol>
+        <table cellpadding="6" cellspacing="4" role="presentation"><tr>
+          <td><button type="button" id="clear-queue">Clear Queue</button></td>
+          <td><button type="button" id="play-next">Play Next in Queue</button></td>
+        </tr></table>
+      </fieldset>
+    </details>
+
+    <hr>
+
+    <details id="now-playing-section">
+      <summary>Now Playing</summary>
+      <fieldset>
+        <div id="now-playing">
+          <p>Nothing is playing.</p>
+        </div>
+        <p>The player controls move beneath the episode currently playing when that episode is visible in an open podcast.</p>
+        <div id="player-fallback">
+          <div id="player-interface">
+            <fieldset>
+              <legend>Playback controls</legend>
+              <table cellpadding="6" cellspacing="4" role="presentation">
+                <tr>
+                  <td><button type="button" id="previous-episode">Previous Episode</button></td>
+                  <td><button type="button" id="skip-back">Back 15 Seconds</button></td>
+                </tr>
+                <tr>
+                  <td><button type="button" id="skip-forward">Forward 30 Seconds</button></td>
+                  <td><button type="button" id="next-episode">Next Episode</button></td>
+                </tr>
+              </table>
+            </fieldset>
+            <fieldset>
+              <legend>Playback speed</legend>
+              <label for="playback-speed">Playback speed</label>
+              <select id="playback-speed">
+                <option value="0.75">0.75x</option>
+                <option value="1" selected>1x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="1.75">1.75x</option>
+                <option value="2">2x</option>
+                <option value="2.5">2.5x</option>
+                <option value="3">3x</option>
+              </select>
+            </fieldset>
+            <audio id="audio-player" controls preload="metadata" aria-label="Podcast audio player"></audio>
+            <p id="player-status" role="status" aria-live="polite">The player is ready.</p>
+          </div>
+        </div>
+      </fieldset>
+    </details>
+
+    <hr>
+
+    <details id="favorites-section">
+      <summary>Saved Episodes</summary>
+      <fieldset>
+        <p id="favorites-empty">You have not saved any episodes.</p>
+        <ul id="favorites-list"></ul>
+      </fieldset>
+    </details>
+
+    <hr>
+
+    <details id="history-section">
+      <summary>Recently Played</summary>
+      <fieldset>
+        <p id="history-empty">Your listening history is empty.</p>
+        <ol id="history-list"></ol>
+        <p><button type="button" id="clear-history">Clear Listening History</button></p>
+      </fieldset>
+    </details>
+  </main>
+
+  <footer>
+    <hr>
+    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted search service. Episode lists and Latest Episodes come from subscribed shows’ public RSS or Atom feeds.</p>
+  </footer>
+
+  <script>
+    "use strict";
+
+    const APPLE_SEARCH_URL = "https://itunes.apple.com/search";
+    const APPLE_LOOKUP_URL = "https://itunes.apple.com/lookup";
+    const PINEPODS_SEARCH_URL = "https://search.pinepods.online/api/search";
+    const RSS_PROXY_PREFIX = "https://proxy.cors.dev/";
+    const STORAGE_KEY = "plain-html-podcast-player-v1";
+    const MAX_HISTORY = 30;
+    const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
+    const APPLE_MIN_REQUEST_INTERVAL_MS = 3200;
+    const PINEPODS_SEARCH_TIMEOUT_MS = 18000;
+
+    const elements = {
+      searchForm: document.getElementById("search-form"),
+      searchQuery: document.getElementById("search-query"),
+      searchButton: document.getElementById("search-button"),
+      searchStatus: document.getElementById("search-status"),
+      searchResultsNavigation: document.getElementById("search-results-navigation"),
+      backToSearchResults: document.getElementById("back-to-search-results"),
+      searchResults: document.getElementById("search-results"),
+      searchSection: document.getElementById("search-section"),
+      rssSection: document.getElementById("rss-section"),
+      librarySection: document.getElementById("library-section"),
+      latestSection: document.getElementById("latest-section"),
+      latestStatus: document.getElementById("latest-status"),
+      refreshLatest: document.getElementById("refresh-latest"),
+      latestEmpty: document.getElementById("latest-empty"),
+      latestList: document.getElementById("latest-list"),
+      queueSection: document.getElementById("queue-section"),
+      nowPlayingSection: document.getElementById("now-playing-section"),
+      favoritesSection: document.getElementById("favorites-section"),
+      historySection: document.getElementById("history-section"),
+      rssForm: document.getElementById("rss-form"),
+      rssUrl: document.getElementById("rss-url"),
+      rssStatus: document.getElementById("rss-status"),
+      libraryEmpty: document.getElementById("library-empty"),
+      libraryList: document.getElementById("library-list"),
+      playerFallback: document.getElementById("player-fallback"),
+      playerInterface: document.getElementById("player-interface"),
+      queueEmpty: document.getElementById("queue-empty"),
+      queueList: document.getElementById("queue-list"),
+      clearQueue: document.getElementById("clear-queue"),
+      playNext: document.getElementById("play-next"),
+      nowPlaying: document.getElementById("now-playing"),
+      previousEpisode: document.getElementById("previous-episode"),
+      skipBack: document.getElementById("skip-back"),
+      skipForward: document.getElementById("skip-forward"),
+      nextEpisode: document.getElementById("next-episode"),
+      playbackSpeed: document.getElementById("playback-speed"),
+      audio: document.getElementById("audio-player"),
+      playerStatus: document.getElementById("player-status"),
+      favoritesEmpty: document.getElementById("favorites-empty"),
+      favoritesList: document.getElementById("favorites-list"),
+      historyEmpty: document.getElementById("history-empty"),
+      historyList: document.getElementById("history-list"),
+      clearHistory: document.getElementById("clear-history")
+    };
+
+    function emptyState() {
+      return {
+        library: [],
+        queue: [],
+        favorites: [],
+        history: [],
+        playedEpisodeIds: [],
+        currentEpisode: null,
+        currentTime: 0,
+        playbackRate: 1
+      };
+    }
+
+    function readSavedState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return emptyState();
+        const saved = JSON.parse(raw);
+        const initial = emptyState();
+        return {
+          library: Array.isArray(saved.library) ? saved.library : initial.library,
+          queue: Array.isArray(saved.queue) ? saved.queue : initial.queue,
+          favorites: Array.isArray(saved.favorites) ? saved.favorites : initial.favorites,
+          history: Array.isArray(saved.history) ? saved.history : initial.history,
+          playedEpisodeIds: Array.isArray(saved.playedEpisodeIds)
+            ? [...new Set(saved.playedEpisodeIds.filter(id => typeof id === "string" && id))]
+            : (Array.isArray(saved.history) ? [...new Set(saved.history.map(item => item && item.id).filter(id => typeof id === "string" && id))] : initial.playedEpisodeIds),
+          currentEpisode: saved.currentEpisode && typeof saved.currentEpisode === "object" ? saved.currentEpisode : null,
+          currentTime: Number.isFinite(Number(saved.currentTime)) && Number(saved.currentTime) >= 0 ? Number(saved.currentTime) : 0,
+          playbackRate: Number.isFinite(Number(saved.playbackRate)) ? Number(saved.playbackRate) : 1
+        };
+      } catch (error) {
+        console.warn("Could not read saved podcast data:", error);
+        return emptyState();
+      }
+    }
+
+    const state = readSavedState();
+    const feedCache = new Map();
+    const latestEpisodesByShow = new Map();
+    const latestFeedCacheTimestamps = new Map();
+    const playedEpisodeIdSet = new Set(state.playedEpisodeIds);
+    const LATEST_CACHE_TTL_MS = 10 * 60 * 1000;
+    let latestRefreshPromise = null;
+    const latestEpisodePanel = {
+      filter: null,
+      list: elements.latestList,
+      episodes: [],
+      expandedEpisodes: new Set(),
+      disclosureGroup: "latest-episodes",
+      includeShowTitle: true,
+      emptyMessage: "There are no unplayed episodes in your subscriptions. You're all caught up.",
+      loaded: false
+    };
+    let currentQueueIndex = -1;
+    const libraryPanels = new Map();
+    const showPanels = new Set();
+    let activeSearchPanel = null;
+    let nowPlayingAutoOpened = false;
+    let panelSequence = 0;
+    let showLoadToken = 0;
+    let searchToken = 0;
+    let lastSavedTime = 0;
+    let statusTimer = null;
+    let lastAppleRequestAt = 0;
+    const appleSearchCache = new Map();
+    const podcastIndexSearchCache = new Map();
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (error) {
+        console.warn("Could not save podcast data:", error);
+        setText(elements.playerStatus, "Browser storage is unavailable or full. Playback still works, but changes may not be saved.");
+      }
+    }
+
+    function setText(element, value) {
+      element.textContent = value == null ? "" : String(value);
+    }
+
+    function makeElement(tag, text) {
+      const element = document.createElement(tag);
+      if (text !== undefined && text !== null) element.textContent = String(text);
+      return element;
+    }
+
+
+    function makeActionGroup(label, controls) {
+      const group = makeElement("fieldset");
+      group.append(makeElement("legend", label));
+      const table = document.createElement("table");
+      table.setAttribute("cellpadding", "6");
+      table.setAttribute("cellspacing", "4");
+      table.setAttribute("role", "presentation");
+      const body = document.createElement("tbody");
+      for (let index = 0; index < controls.length; index += 2) {
+        const row = document.createElement("tr");
+        for (const control of controls.slice(index, index + 2)) {
+          const cell = document.createElement("td");
+          cell.append(control);
+          row.append(cell);
+        }
+        body.append(row);
+      }
+      table.append(body);
+      group.append(table);
+      return group;
+    }
+
+    function safeHttpUrl(value) {
+      if (typeof value !== "string" || !value.trim()) return "";
+      try {
+        const parsed = new URL(value.trim());
+        return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function makeExternalLink(url, label) {
+      const safeUrl = safeHttpUrl(url);
+      if (!safeUrl) return makeElement("span", label);
+      const link = makeElement("a", label);
+      link.href = safeUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      return link;
+    }
+
+    function normalizeShow(raw) {
+      const suppliedId = raw.id != null ? String(raw.id) : "";
+      // Podcast Index IDs are also numeric. Only explicit Apple fields or an
+      // existing apple-<id> value may be treated as an Apple catalogue ID.
+      const appleIdValue = raw.appleId != null ? raw.appleId :
+        (raw.collectionId != null ? raw.collectionId :
+          (raw.itunesId != null ? raw.itunesId :
+            (/^apple-\d+$/.test(suppliedId) ? suppliedId.slice(6) : "")));
+      const appleId = appleIdValue === "" ? "" : String(appleIdValue);
+      const feedUrl = safeHttpUrl(raw.feedUrl || raw.feedURL || raw.originalUrl || raw.url || "");
+      const title = String(raw.title || raw.collectionName || raw.trackName || "Untitled Podcast").trim();
+      const artist = String(raw.artist || raw.artistName || raw.author || raw.ownerName || "").trim();
+      const artwork = safeHttpUrl(raw.artwork || raw.artworkUrl600 || raw.artworkUrl160 || raw.artworkUrl100 || raw.image || "");
+      const appleUrl = safeHttpUrl(raw.appleUrl || raw.collectionViewUrl || raw.trackViewUrl || "");
+      const existingStableId = /^(apple-\d+|feed-[a-f0-9]+)$/.test(suppliedId) ? suppliedId : "";
+      const stableId = existingStableId || (appleId ? "apple-" + appleId : "feed-" + simpleHash(feedUrl || title + artist));
+      const rawSources = Array.isArray(raw.sources) ? raw.sources : (raw.source ? [raw.source] : []);
+      const sources = [...new Set(rawSources.map(source => {
+        const value = String(source || "").toLowerCase();
+        if (value.includes("podcastindex") || value.includes("podcast index")) return "Podcast Index";
+        if (value.includes("apple") || value === "itunes") return "Apple Podcasts";
+        return String(source || "").trim();
+      }).filter(Boolean))];
+      return {
+        id: stableId,
+        appleId,
+        title,
+        artist,
+        feedUrl,
+        artwork,
+        appleUrl,
+        trackCount: Number(raw.trackCount) || 0,
+        description: String(raw.description || ""),
+        sources
+      };
+    }
+
+    function simpleHash(value) {
+      let hash = 2166136261;
+      const input = String(value);
+      for (let i = 0; i < input.length; i += 1) {
+        hash ^= input.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(16);
+    }
+
+    function normalizeEpisode(raw) {
+      return {
+        id: String(raw.id || simpleHash([raw.audioUrl, raw.title, raw.date].join("|"))),
+        title: String(raw.title || "Untitled Episode"),
+        showId: String(raw.showId || ""),
+        showTitle: String(raw.showTitle || "Unknown Podcast"),
+        showArtwork: safeHttpUrl(raw.showArtwork || ""),
+        feedUrl: safeHttpUrl(raw.feedUrl || ""),
+        audioUrl: safeHttpUrl(raw.audioUrl || ""),
+        link: safeHttpUrl(raw.link || ""),
+        date: String(raw.date || ""),
+        duration: String(raw.duration || ""),
+        description: String(raw.description || "").slice(0, 5000),
+        image: safeHttpUrl(raw.image || ""),
+        fileSize: Number(raw.fileSize) || 0
+      };
+    }
+
+    function makeImage(url, alt, width) {
+      const safeUrl = safeHttpUrl(url);
+      if (!safeUrl) return null;
+      const image = document.createElement("img");
+      image.src = safeUrl;
+      image.alt = alt || "Podcast artwork";
+      image.width = width || 100;
+      image.height = width || 100;
+      image.loading = "lazy";
+      image.referrerPolicy = "no-referrer";
+      return image;
+    }
+
+    function cleanHtmlToText(value) {
+      if (!value) return "";
+      const parsed = new DOMParser().parseFromString(String(value), "text/html");
+      parsed.querySelectorAll("script, style, iframe, object, embed, noscript").forEach(node => node.remove());
+      return (parsed.body.textContent || "").replace(/\s+/g, " ").trim();
+    }
+
+    function firstByLocalName(parent, names) {
+      if (!parent) return null;
+      const wanted = new Set(names.map(name => name.toLowerCase()));
+      const all = parent.getElementsByTagName("*");
+      for (let i = 0; i < all.length; i += 1) {
+        const name = (all[i].localName || all[i].nodeName.split(":").pop()).toLowerCase();
+        if (wanted.has(name)) return all[i];
+      }
+      return null;
+    }
+
+    function allByLocalName(parent, name) {
+      if (!parent) return [];
+      const matches = [];
+      const all = parent.getElementsByTagName("*");
+      for (let i = 0; i < all.length; i += 1) {
+        const localName = (all[i].localName || all[i].nodeName.split(":").pop()).toLowerCase();
+        if (localName === name.toLowerCase()) matches.push(all[i]);
+      }
+      return matches;
+    }
+
+    function tagText(parent, names) {
+      const node = firstByLocalName(parent, names);
+      return node ? String(node.textContent || "").trim() : "";
+    }
+
+    function attributeFromImage(parent) {
+      const imageNodes = allByLocalName(parent, "image");
+      for (const node of imageNodes) {
+        const href = node.getAttribute("href") || node.getAttribute("url");
+        if (safeHttpUrl(href)) return safeHttpUrl(href);
+        const nestedUrl = tagText(node, ["url"]);
+        if (safeHttpUrl(nestedUrl)) return safeHttpUrl(nestedUrl);
+      }
+      const thumbnails = allByLocalName(parent, "thumbnail");
+      for (const node of thumbnails) {
+        const url = safeHttpUrl(node.getAttribute("url") || "");
+        if (url) return url;
+      }
+      return "";
+    }
+
+    function durationToSeconds(value) {
+      if (!value) return 0;
+      const input = String(value).trim();
+      if (/^\d+(\.\d+)?$/.test(input)) return Number(input);
+      const parts = input.split(":").map(part => Number(part));
+      if (parts.some(part => !Number.isFinite(part))) return 0;
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      return 0;
+    }
+
+    function parseXmlDocument(xmlText) {
+      const documentXml = new DOMParser().parseFromString(xmlText, "application/xml");
+      if (documentXml.getElementsByTagName("parsererror").length > 0) {
+        throw new Error("The podcast feed returned invalid XML.");
+      }
+      const entries = allByLocalName(documentXml, "item");
+      const atomEntries = allByLocalName(documentXml, "entry");
+      const allEntries = entries.length ? entries : atomEntries;
+      if (!allEntries.length && !documentXml.documentElement) {
+        throw new Error("The feed did not contain a valid RSS or Atom document.");
+      }
+      return { documentXml, entries: allEntries };
+    }
+
+    async function fetchTextWithTimeout(url, timeoutMs) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          mode: "cors",
+          credentials: "omit",
+          redirect: "follow",
+          headers: { "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" },
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          const proxyError = response.headers.get("X-Cors-Error");
+          throw new Error(proxyError || ("HTTP " + response.status));
+        }
+        return await response.text();
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    async function fetchFeedDocument(feedUrl) {
+      const url = safeHttpUrl(feedUrl);
+      if (!url) throw new Error("This podcast does not have a valid public RSS feed URL.");
+      let directError = null;
+      try {
+        const directText = await fetchTextWithTimeout(url, 12000);
+        return { ...parseXmlDocument(directText), source: "direct" };
+      } catch (error) {
+        directError = error;
+      }
+
+      try {
+        const proxyText = await fetchTextWithTimeout(RSS_PROXY_PREFIX + url, 35000);
+        return { ...parseXmlDocument(proxyText), source: "proxy" };
+      } catch (proxyError) {
+        const reason = proxyError && proxyError.message ? proxyError.message : "unknown error";
+        const directReason = directError && directError.message ? directError.message : "direct feed request failed";
+        throw new Error("Could not read this podcast's feed. Direct request: " + directReason + ". Proxy request: " + reason + ". The feed may be private, unavailable, or larger than the proxy permits.");
+      }
+    }
+
+    function extractEpisodeAudio(entry) {
+      const candidates = [];
+      const all = entry.getElementsByTagName("*");
+      for (let i = 0; i < all.length; i += 1) {
+        const localName = (all[i].localName || all[i].nodeName.split(":").pop()).toLowerCase();
+        const node = all[i];
+        if (localName === "enclosure" || localName === "content") {
+          const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || "");
+          if (url) candidates.push({ url, type: (node.getAttribute("type") || "").toLowerCase() });
+        }
+        if (localName === "link" && String(node.getAttribute("rel") || "").toLowerCase() === "enclosure") {
+          const url = safeHttpUrl(node.getAttribute("href") || "");
+          if (url) candidates.push({ url, type: (node.getAttribute("type") || "").toLowerCase() });
+        }
+      }
+      if (!candidates.length) return "";
+      const audio = candidates.find(item => item.type.startsWith("audio/"));
+      if (audio) return audio.url;
+      const likelyAudio = candidates.find(item => /\.(mp3|m4a|m4b|mp4|aac|ogg|oga|opus|wav)(?:$|[?#])/i.test(item.url));
+      return likelyAudio ? likelyAudio.url : candidates[0].url;
+    }
+
+    function parseFeed(documentXml, show, source) {
+      const root = documentXml.documentElement;
+      const channel = documentXml.getElementsByTagName("channel")[0] || root;
+      const title = tagText(channel, ["title"]) || show.title;
+      const author = tagText(channel, ["author", "creator", "managingEditor"]) || show.artist;
+      const description = cleanHtmlToText(tagText(channel, ["description", "subtitle", "summary"])) || show.description;
+      const image = attributeFromImage(channel) || show.artwork;
+      const actualShow = { ...show, title, artist: author, description, artwork: image };
+      const entries = allByLocalName(documentXml, "item");
+      const atomEntries = allByLocalName(documentXml, "entry");
+      const sourceEntries = entries.length ? entries : atomEntries;
+
+      const episodes = sourceEntries.map((entry, index) => {
+        const titleText = tagText(entry, ["title"]) || "Untitled Episode";
+        const date = tagText(entry, ["pubDate", "published", "updated", "date"]);
+        const guid = tagText(entry, ["guid", "id"]);
+        const audioUrl = extractEpisodeAudio(entry);
+        const enclosure = firstByLocalName(entry, ["enclosure", "content"]);
+        const duration = tagText(entry, ["duration"]);
+        const descriptionMarkup = tagText(entry, ["encoded", "description", "summary", "content"]);
+        const linkNode = firstByLocalName(entry, ["link"]);
+        let link = "";
+        if (linkNode) link = linkNode.getAttribute("href") || linkNode.textContent.trim();
+        const episodeImage = attributeFromImage(entry) || image;
+        const fileSize = enclosure ? Number(enclosure.getAttribute("length")) || 0 : 0;
+        const idSeed = guid || audioUrl || (titleText + "|" + date + "|" + index);
+        return normalizeEpisode({
+          id: simpleHash(actualShow.id + "|" + idSeed),
+          title: titleText,
+          showId: actualShow.id,
+          showTitle: actualShow.title,
+          showArtwork: actualShow.artwork,
+          feedUrl: actualShow.feedUrl,
+          audioUrl,
+          link,
+          date,
+          duration,
+          description: cleanHtmlToText(descriptionMarkup),
+          image: episodeImage,
+          fileSize
+        });
+      });
+
+      return { show: actualShow, episodes, source };
+    }
+
+    async function fetchAppleJson(url, timeoutMs) {
+      const targetUrl = safeHttpUrl(url);
+      if (!targetUrl) throw new Error("Apple's catalogue URL is invalid.");
+
+      // Apple documents an approximate 20-request-per-minute limit. Apply
+      // spacing to both search and lookup calls so this page does not burst.
+      const waitMs = Math.max(0, APPLE_MIN_REQUEST_INTERVAL_MS - (Date.now() - lastAppleRequestAt));
+      if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
+      lastAppleRequestAt = Date.now();
+
+      // Apple documents JSONP for cross-site searches. A dynamically added
+      // script is not subject to fetch() CORS restrictions, including when
+      // this application is opened from file:// (origin "null"). This also
+      // avoids sending every user's searches through one shared proxy IP.
+      return new Promise((resolve, reject) => {
+        const callbackName = "__podcastAppleCallback_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2);
+        const script = document.createElement("script");
+        let settled = false;
+        let timeoutId = null;
+
+        function finish(error, data) {
+          if (settled) return;
+          settled = true;
+          if (timeoutId !== null) clearTimeout(timeoutId);
+          script.onload = null;
+          script.onerror = null;
+          if (script.parentNode) script.parentNode.removeChild(script);
+          try { delete window[callbackName]; } catch (cleanupError) { window[callbackName] = undefined; }
+          if (error) reject(error);
+          else resolve(data);
+        }
+
+        window[callbackName] = data => {
+          if (!data || !Array.isArray(data.results)) {
+            finish(new Error("Apple returned an unexpected catalogue response."));
+            return;
+          }
+          finish(null, data);
+        };
+
+        const requestUrl = new URL(targetUrl);
+        requestUrl.searchParams.set("callback", callbackName);
+        script.async = true;
+        script.src = requestUrl.href;
+        script.onerror = () => finish(new Error("The browser could not load Apple's catalogue script. Check your connection or try again later."));
+        script.onload = () => {
+          // A 429 or other server error may return a page without invoking
+          // the JSONP callback. The callback runs before the load event when
+          // a valid response is received.
+          setTimeout(() => {
+            if (!settled) finish(new Error("Apple's catalogue did not return search data. It may be temporarily rate-limiting requests; wait a minute and try again."));
+          }, 0);
+        };
+        timeoutId = setTimeout(() => {
+          finish(new Error("Apple's catalogue request timed out. Try again later or add the podcast using its RSS feed address."));
+        }, Number(timeoutMs) || 20000);
+        document.head.appendChild(script);
+      });
+    }
+
+    function cacheSearchResults(cache, cacheKey, results) {
+      cache.set(cacheKey, { savedAt: Date.now(), results });
+      // Keep each in-memory cache bounded during long sessions.
+      if (cache.size > 40) cache.delete(cache.keys().next().value);
+      return results;
+    }
+
+    function getCachedSearchResults(cache, cacheKey) {
+      const cached = cache.get(cacheKey);
+      return cached && Date.now() - cached.savedAt < SEARCH_CACHE_TTL_MS ? cached.results : null;
+    }
+
+    async function searchApple(query) {
+      const cacheKey = String(query || "").trim().toLocaleLowerCase();
+      const cached = getCachedSearchResults(appleSearchCache, cacheKey);
+      if (cached) return cached;
+
+      const params = new URLSearchParams({
+        term: query,
+        media: "podcast",
+        entity: "podcast",
+        country: "us",
+        limit: "50"
+      });
+      const data = await fetchAppleJson(APPLE_SEARCH_URL + "?" + params.toString());
+      const results = data.results
+        .filter(item => item && (item.kind === "podcast" || item.wrapperType === "track"))
+        .map(item => normalizeShow({ ...item, source: "apple" }))
+        .filter(item => item.title && item.feedUrl);
+      return cacheSearchResults(appleSearchCache, cacheKey, results);
+    }
+
+    async function fetchJsonWithTimeout(url, timeoutMs) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          mode: "cors",
+          credentials: "omit",
+          headers: { "Accept": "application/json" },
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return await response.json();
+      } catch (error) {
+        if (error && error.name === "AbortError") throw new Error("The Podcast Index search service timed out.");
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    async function searchPodcastIndex(query) {
+      const cacheKey = String(query || "").trim().toLocaleLowerCase();
+      const cached = getCachedSearchResults(podcastIndexSearchCache, cacheKey);
+      if (cached) return cached;
+
+      const requestUrl = new URL(PINEPODS_SEARCH_URL);
+      requestUrl.searchParams.set("query", query);
+      requestUrl.searchParams.set("index", "podcastindex");
+      requestUrl.searchParams.set("search_type", "term");
+      const data = await fetchJsonWithTimeout(requestUrl.href, PINEPODS_SEARCH_TIMEOUT_MS);
+      if (!data || !Array.isArray(data.feeds)) {
+        throw new Error("Podcast Index returned an unexpected response through PinePods.");
+      }
+      const results = data.feeds
+        .filter(item => item && (item.url || item.originalUrl || item.feedUrl))
+        .map(item => normalizeShow({ ...item, source: "podcastindex" }))
+        .filter(item => item.title && item.feedUrl);
+      return cacheSearchResults(podcastIndexSearchCache, cacheKey, results);
+    }
+
+    function mergeSearchResults(appleResults, podcastIndexResults) {
+      const merged = new Map();
+      const allResults = [...appleResults, ...podcastIndexResults];
+      for (const show of allResults) {
+        const feedKey = show.feedUrl ? show.feedUrl.replace(/\/+$/, "").toLowerCase() : "";
+        const fallbackKey = show.appleId ? "apple:" + show.appleId :
+          "show:" + (show.title + "|" + show.artist).toLocaleLowerCase();
+        const key = feedKey || fallbackKey;
+        const existing = merged.get(key);
+        if (!existing) {
+          merged.set(key, { ...show, sources: [...(show.sources || [])] });
+          continue;
+        }
+        const sources = [...new Set([...(existing.sources || []), ...(show.sources || [])])];
+        const preferCurrent = Boolean(show.appleId && !existing.appleId);
+        const preferred = preferCurrent ? show : existing;
+        const secondary = preferCurrent ? existing : show;
+        merged.set(key, {
+          ...secondary,
+          ...preferred,
+          id: (existing.appleId ? existing.id : (show.appleId ? show.id : existing.id)),
+          appleId: existing.appleId || show.appleId || "",
+          feedUrl: existing.feedUrl || show.feedUrl,
+          title: preferred.title || secondary.title,
+          artist: preferred.artist || secondary.artist,
+          artwork: preferred.artwork || secondary.artwork,
+          appleUrl: preferred.appleUrl || secondary.appleUrl,
+          description: (preferred.description && preferred.description.length >= (secondary.description || "").length)
+            ? preferred.description : (secondary.description || preferred.description || ""),
+          trackCount: Math.max(existing.trackCount || 0, show.trackCount || 0),
+          sources
+        });
+      }
+      return [...merged.values()];
+    }
+
+    async function searchPodcasts(query) {
+      const outcomes = await Promise.allSettled([searchApple(query), searchPodcastIndex(query)]);
+      const appleOutcome = outcomes[0];
+      const indexOutcome = outcomes[1];
+      const appleResults = appleOutcome.status === "fulfilled" ? appleOutcome.value : [];
+      const indexResults = indexOutcome.status === "fulfilled" ? indexOutcome.value : [];
+      if (appleOutcome.status === "rejected" && indexOutcome.status === "rejected") {
+        const appleError = appleOutcome.reason && appleOutcome.reason.message ? appleOutcome.reason.message : "Apple search failed";
+        const indexError = indexOutcome.reason && indexOutcome.reason.message ? indexOutcome.reason.message : "Podcast Index search failed";
+        throw new Error("Both podcast directories failed. Apple: " + appleError + " Podcast Index: " + indexError);
+      }
+      const results = mergeSearchResults(appleResults, indexResults);
+      return {
+        results,
+        appleCount: appleResults.length,
+        podcastIndexCount: indexResults.length,
+        duplicateCount: appleResults.length + indexResults.length - results.length,
+        failures: [
+          appleOutcome.status === "rejected" ? "Apple Podcasts unavailable: " + (appleOutcome.reason.message || "request failed") : "",
+          indexOutcome.status === "rejected" ? "Podcast Index unavailable: " + (indexOutcome.reason.message || "request failed") : ""
+        ].filter(Boolean)
+      };
+    }
+
+    async function lookupAppleFeed(show) {
+      if (show.feedUrl) return show.feedUrl;
+      if (!show.appleId) return "";
+      const params = new URLSearchParams({ id: show.appleId, entity: "podcast", country: "us" });
+      const data = await fetchAppleJson(APPLE_LOOKUP_URL + "?" + params.toString());
+      const result = Array.isArray(data.results) ? data.results.find(item => item.feedUrl) : null;
+      return result ? safeHttpUrl(result.feedUrl) : "";
+    }
+
+    function setStatus(element, message, isError) {
+      setText(element, message);
+      if (statusTimer) clearTimeout(statusTimer);
+      if (!isError && element !== elements.playerStatus && message) {
+        statusTimer = setTimeout(() => {
+          if (element.textContent === message) element.textContent = "";
+        }, 9000);
+      }
+    }
+
+    function subscribeShow(show) {
+      const normalized = normalizeShow(show);
+      if (!normalized.feedUrl && !normalized.appleId) {
+        setStatus(elements.libraryEmpty, "This result does not provide a podcast feed.", true);
+        return;
+      }
+      const existingIndex = state.library.findIndex(item => item.id === normalized.id || (normalized.feedUrl && item.feedUrl === normalized.feedUrl));
+      if (existingIndex >= 0) {
+        state.library[existingIndex] = { ...state.library[existingIndex], ...normalized };
+      } else {
+        state.library.push(normalized);
+      }
+      saveState();
+      latestEpisodesByShow.delete(normalized.id);
+      renderLibrary();
+      renderLatestEpisodes();
+      elements.librarySection.open = true;
+      if (elements.latestSection.open) refreshLatestEpisodes(false);
+    }
+
+    function unsubscribeShow(showId) {
+      state.library = state.library.filter(show => show.id !== showId);
+      latestEpisodesByShow.delete(showId);
+      saveState();
+      renderLibrary();
+      renderLatestEpisodes();
+    }
+
+    function focusSearchPanel(panel) {
+      elements.searchSection.open = true;
+      activeSearchPanel = panel;
+      for (const item of elements.searchResults.children) {
+        item.hidden = item !== panel.item;
+      }
+      elements.searchResultsNavigation.hidden = false;
+    }
+
+    function restoreAllSearchResults() {
+      elements.searchSection.open = true;
+      if (activeSearchPanel) {
+        activeSearchPanel.container.hidden = true;
+        if (activeSearchPanel.viewButton) activeSearchPanel.viewButton.textContent = "View Episodes";
+      }
+      activeSearchPanel = null;
+      for (const item of elements.searchResults.children) item.hidden = false;
+      elements.searchResultsNavigation.hidden = true;
+      placePlayerUnderEpisode();
+    }
+
+    function createShowPanel(show) {
+      const container = makeElement("fieldset");
+      container.hidden = true;
+      container.append(makeElement("legend", "Podcast episodes"));
+      const details = makeElement("div");
+      const status = makeElement("p");
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+      const tools = makeElement("fieldset");
+      tools.append(makeElement("legend", "Episode tools"));
+      const filterLine = makeElement("p");
+      const filterLabel = makeElement("label", "Filter episodes ");
+      const filter = document.createElement("input");
+      filter.type = "search";
+      filter.autocomplete = "off";
+      filter.placeholder = "Filter this podcast's episodes";
+      filterLabel.append(filter);
+      filterLine.append(filterLabel);
+      const refresh = makeElement("button", "Refresh Episodes");
+      refresh.type = "button";
+      const refreshLine = makeElement("p");
+      refreshLine.append(refresh);
+      tools.append(filterLine, refreshLine);
+      const list = makeElement("ol");
+      container.append(details, status, tools, list);
+
+      const panel = {
+        show: normalizeShow(show),
+        container,
+        details,
+        status,
+        tools,
+        filter,
+        list,
+        episodes: [],
+        expandedEpisodes: new Set(),
+        disclosureGroup: "podcast-episodes-" + (++panelSequence),
+        loaded: false,
+        loadToken: 0,
+        viewButton: null
+      };
+      filter.addEventListener("input", () => renderEpisodes(panel));
+      refresh.addEventListener("click", () => openShow(panel.show, panel, { force: true }));
+      showPanels.add(panel);
+      return panel;
+    }
+
+    function isSubscribed(show) {
+      const normalized = normalizeShow(show);
+      return state.library.some(saved => saved.id === normalized.id ||
+        (normalized.feedUrl && saved.feedUrl === normalized.feedUrl));
+    }
+
+    function syncSearchSubscribeButtons() {
+      elements.searchResults.querySelectorAll("button[data-subscribe-show-id]").forEach(button => {
+        const subscribed = state.library.some(saved => saved.id === button.dataset.subscribeShowId ||
+          (button.dataset.subscribeFeed && saved.feedUrl === button.dataset.subscribeFeed));
+        button.textContent = subscribed ? "Subscribed" : "Subscribe";
+        button.disabled = subscribed;
+      });
+    }
+
+    function createShowCard(show, inLibrary) {
+      const normalized = normalizeShow(show);
+      const item = makeElement("li");
+      const card = makeElement("fieldset");
+      card.append(makeElement("legend", "Podcast"));
+      const image = makeImage(normalized.artwork, normalized.title + " artwork", inLibrary ? 48 : 80);
+      if (image) card.append(image, document.createElement("br"));
+      card.append(makeElement("h3", normalized.title));
+      if (normalized.artist) card.append(makeElement("p", "By " + normalized.artist));
+      if (!inLibrary && normalized.sources && normalized.sources.length) {
+        card.append(makeElement("p", "Found via: " + normalized.sources.join(" + ")));
+      }
+      if (normalized.trackCount && !inLibrary) card.append(makeElement("p", normalized.trackCount + " episodes listed by Apple"));
+
+      const view = makeElement("button", "View Episodes");
+      view.type = "button";
+      const panel = createShowPanel(normalized);
+      panel.viewButton = view;
+      panel.surface = inLibrary ? "library" : "search";
+      panel.item = item;
+      view.addEventListener("click", async () => {
+        const wasOpen = !panel.container.hidden;
+        if (panel.surface === "library") elements.librarySection.open = true;
+        if (panel.surface === "search") {
+          if (wasOpen) {
+            panel.container.hidden = true;
+            view.textContent = "View Episodes";
+            restoreAllSearchResults();
+            return;
+          }
+          focusSearchPanel(panel);
+        }
+        panel.container.hidden = wasOpen;
+        view.textContent = panel.container.hidden ? "View Episodes" : "Hide Episodes";
+        if (!panel.container.hidden && !panel.loaded) {
+          await openShow(panel.show, panel);
+        } else {
+          placePlayerUnderEpisode();
+        }
+      });
+
+      const actions = [view];
+      if (inLibrary) {
+        const remove = makeElement("button", "Unsubscribe");
+        remove.type = "button";
+        remove.addEventListener("click", () => unsubscribeShow(normalized.id));
+        actions.push(remove);
+      } else {
+        const subscribe = makeElement("button", isSubscribed(normalized) ? "Subscribed" : "Subscribe");
+        subscribe.type = "button";
+        subscribe.dataset.subscribeShowId = normalized.id;
+        subscribe.dataset.subscribeFeed = normalized.feedUrl;
+        subscribe.disabled = isSubscribed(normalized);
+        subscribe.addEventListener("click", () => subscribeShow(normalized));
+        actions.push(subscribe);
+      }
+
+      card.append(makeActionGroup("Podcast actions", actions), panel.container);
+      item.append(card, document.createElement("hr"));
+      return { item, panel };
+    }
+
+    function renderSearchResults(results) {
+      elements.searchSection.open = true;
+      for (const panel of showPanels) {
+        if (panel.surface === "search") showPanels.delete(panel);
+      }
+      activeSearchPanel = null;
+      elements.searchResultsNavigation.hidden = true;
+      elements.searchResults.replaceChildren();
+      if (!results.length) {
+        elements.searchResults.append(makeElement("li", "No podcasts with a public RSS feed were found for that search."));
+        placePlayerUnderEpisode();
+        return;
+      }
+      results.forEach(show => {
+        const card = createShowCard(show, false);
+        elements.searchResults.append(card.item);
+      });
+      syncSearchSubscribeButtons();
+      placePlayerUnderEpisode();
+    }
+
+    function renderLibrary() {
+      for (const panel of showPanels) {
+        if (panel.surface === "library") showPanels.delete(panel);
+      }
+      elements.libraryList.replaceChildren();
+      libraryPanels.clear();
+      elements.libraryEmpty.hidden = state.library.length > 0;
+      const sorted = [...state.library].sort((a, b) => a.title.localeCompare(b.title));
+      sorted.forEach(show => {
+        const card = createShowCard(show, true);
+        elements.libraryList.append(card.item);
+        libraryPanels.set(show.id, card.panel);
+      });
+      syncSearchSubscribeButtons();
+      placePlayerUnderEpisode();
+    }
+
+    async function openShow(show, panel, options) {
+      const settings = options || {};
+      const token = ++panel.loadToken;
+      const normalized = normalizeShow(show);
+      panel.show = normalized;
+      panel.episodes = [];
+      panel.loaded = false;
+      panel.list.replaceChildren();
+      placePlayerUnderEpisode();
+      panel.filter.value = "";
+      panel.tools.hidden = false;
+      setText(panel.status, "Loading episodes…");
+      renderShowDetails(normalized, "Loading podcast feed…", panel.details);
+
+      try {
+        const feedUrl = await lookupAppleFeed(normalized);
+        if (!feedUrl) throw new Error("Apple did not provide an RSS feed URL for this show. Try adding its public feed address manually.");
+        panel.show = { ...normalized, feedUrl };
+        const cached = !settings.force && feedCache.get(feedUrl);
+        let result;
+        if (cached) {
+          result = cached;
+        } else if (settings.prefetched) {
+          result = settings.prefetched;
+        } else {
+          const fetched = await fetchFeedDocument(feedUrl);
+          result = parseFeed(fetched.documentXml, panel.show, fetched.source);
+        }
+        if (token !== panel.loadToken) return;
+        feedCache.set(feedUrl, result);
+        if (settings.force || !cached || settings.prefetched || !latestFeedCacheTimestamps.has(feedUrl)) {
+          latestFeedCacheTimestamps.set(feedUrl, Date.now());
+        }
+        panel.show = result.show;
+        panel.episodes = result.episodes;
+        latestEpisodesByShow.set(panel.show.id, {
+          show: panel.show,
+          episodes: panel.episodes,
+          refreshedAt: latestFeedCacheTimestamps.get(feedUrl) || Date.now()
+        });
+        renderLatestEpisodes();
+        panel.loaded = true;
+        renderShowDetails(panel.show, "", panel.details);
+        renderEpisodes(panel);
+        const playableCount = panel.episodes.filter(episode => episode.audioUrl).length;
+        setStatus(panel.status, panel.episodes.length + " episodes found; " + playableCount + " have audio enclosures. Feed loaded " +
+          (result.source === "proxy" ? "through the CORS fallback." : "directly."));
+      } catch (error) {
+        if (token !== panel.loadToken) return;
+        renderShowDetails(panel.show, "", panel.details);
+        setStatus(panel.status, error.message || "Could not load this podcast feed.", true);
+        placePlayerUnderEpisode();
+      }
+    }
+
+    function renderShowDetails(show, message, target) {
+      target.replaceChildren();
+      const image = makeImage(show.artwork, show.title + " artwork", 120);
+      if (image) target.append(image);
+      target.append(makeElement("h3", show.title));
+      if (show.artist) target.append(makeElement("p", "By " + show.artist));
+      if (show.description) target.append(makeElement("p", show.description));
+      if (show.feedUrl) {
+        target.append(makeExternalLink(show.feedUrl, "Open RSS feed"));
+      }
+      if (message) target.append(makeElement("p", message));
+    }
+
+    function formatDate(value) {
+      if (!value) return "Date unavailable";
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return value;
+      return parsed.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    }
+
+    function formatDuration(value) {
+      const seconds = durationToSeconds(value);
+      if (!seconds) return value ? String(value) : "Duration unavailable";
+      const rounded = Math.floor(seconds);
+      const hours = Math.floor(rounded / 3600);
+      const minutes = Math.floor((rounded % 3600) / 60);
+      const remainder = rounded % 60;
+      return hours ? hours + ":" + String(minutes).padStart(2, "0") + ":" + String(remainder).padStart(2, "0") : minutes + ":" + String(remainder).padStart(2, "0");
+    }
+
+    function isFavorite(episode) {
+      return state.favorites.some(item => item.id === episode.id);
+    }
+
+    function renderEpisodes(panel) {
+      const filter = panel.filter ? panel.filter.value.trim().toLowerCase() : "";
+      const visibleEpisodes = panel.episodes.filter(episode => {
+        if (!filter) return true;
+        return (episode.title + " " + episode.description + " " + episode.date).toLowerCase().includes(filter);
+      });
+      panel.list.replaceChildren();
+      visibleEpisodes.forEach(episode => {
+        const item = makeElement("li");
+        item.dataset.episodeId = episode.id;
+        item.dataset.audioUrl = episode.audioUrl;
+
+        // Keep each row compact until its title is opened.
+        const disclosure = makeElement("details");
+        disclosure.name = panel.disclosureGroup;
+        disclosure.open = panel.expandedEpisodes.has(episode.id);
+        const title = makeElement("summary", episode.title);
+        title.setAttribute("aria-label", "Expand episode: " + episode.title);
+        disclosure.append(title);
+
+        const expandedContent = makeElement("div");
+        if (panel.includeShowTitle) expandedContent.append(makeElement("p", "Podcast: " + episode.showTitle));
+        expandedContent.append(makeElement("p", formatDate(episode.date) + " | " + formatDuration(episode.duration)));
+        if (episode.description) expandedContent.append(makeElement("p", episode.description));
+
+        const actions = [];
+        const play = makeElement("button", episode.audioUrl ? "Play Episode" : "No Audio File");
+        play.type = "button";
+        play.disabled = !episode.audioUrl;
+        play.addEventListener("click", () => playEpisode(episode));
+        actions.push(play);
+
+        const queue = makeElement("button", "Add to Queue");
+        queue.type = "button";
+        queue.disabled = !episode.audioUrl;
+        queue.addEventListener("click", () => addToQueue(episode));
+        actions.push(queue);
+
+        const save = makeElement("button", isFavorite(episode) ? "Remove Saved Episode" : "Save Episode");
+        save.type = "button";
+        save.addEventListener("click", () => toggleFavorite(episode));
+        actions.push(save);
+        if (episode.link) actions.push(makeExternalLink(episode.link, "Episode page"));
+
+        expandedContent.append(makeActionGroup("Episode actions", actions));
+        disclosure.append(expandedContent);
+        disclosure.addEventListener("toggle", () => {
+          if (disclosure.open) {
+            // The details name group handles modern browsers; this loop also
+            // enforces one-open-at-a-time behavior where that feature is absent.
+            for (const other of panel.list.querySelectorAll("details")) {
+              if (other !== disclosure && other.open) other.open = false;
+            }
+            panel.expandedEpisodes.clear();
+            panel.expandedEpisodes.add(episode.id);
+          } else {
+            panel.expandedEpisodes.delete(episode.id);
+          }
+        });
+
+        const separator = document.createElement("hr");
+        item.append(disclosure, separator);
+        panel.list.append(item);
+      });
+      if (!visibleEpisodes.length && !panel.emptyMessage) {
+        const emptyMessage = panel.episodes.length
+          ? "No episodes match this filter."
+          : "No episodes are available in this feed.";
+        panel.list.append(makeElement("li", emptyMessage));
+      }
+      placePlayerUnderEpisode();
+    }
+
+    function rowIsInOpenSection(row) {
+      if (row.closest("[hidden]")) return false;
+      let ancestor = row.parentElement;
+      while (ancestor) {
+        if (ancestor.tagName === "DETAILS" && !ancestor.open) return false;
+        ancestor = ancestor.parentElement;
+      }
+      return true;
+    }
+
+    function placePlayerUnderEpisode() {
+      if (!elements.playerInterface || !elements.playerFallback) return;
+      let destination = null;
+      const current = state.currentEpisode;
+      if (current) {
+        const rows = document.querySelectorAll("li[data-episode-id]");
+        for (const row of rows) {
+          if (row.dataset.episodeId === current.id && row.dataset.audioUrl === current.audioUrl && rowIsInOpenSection(row)) {
+            destination = row;
+            break;
+          }
+        }
+      }
+      if (destination) {
+        // Place the shared controls after this episode's disclosure and before its separator.
+        const separator = destination.querySelector(":scope > hr");
+        if (separator) destination.insertBefore(elements.playerInterface, separator);
+        else destination.append(elements.playerInterface);
+        if (nowPlayingAutoOpened) {
+          nowPlayingAutoOpened = false;
+          elements.nowPlayingSection.open = false;
+        }
+      } else {
+        elements.playerFallback.append(elements.playerInterface);
+        if (current && !elements.nowPlayingSection.open) {
+          nowPlayingAutoOpened = true;
+          elements.nowPlayingSection.open = true;
+        }
+      }
+    }
+
+    function persistableEpisode(episode) {
+      return normalizeEpisode(episode);
+    }
+
+    function addToQueue(episode) {
+      const normalized = persistableEpisode(episode);
+      if (!normalized.audioUrl) return;
+      const exists = state.queue.some(item => item.id === normalized.id);
+      if (exists) {
+        setStatus(elements.playerStatus, "That episode is already in the queue.");
+        return;
+      }
+      state.queue.push(normalized);
+      saveState();
+      renderQueue();
+      elements.queueSection.open = true;
+      setStatus(elements.playerStatus, "Added to queue: " + normalized.title);
+    }
+
+    function playEpisode(episode) {
+      const normalized = persistableEpisode(episode);
+      if (!normalized.audioUrl) {
+        setStatus(elements.playerStatus, "This episode does not include a playable audio file.", true);
+        return;
+      }
+      let index = state.queue.findIndex(item => item.id === normalized.id);
+      if (index < 0) {
+        state.queue.push(normalized);
+        index = state.queue.length - 1;
+      } else {
+        state.queue[index] = normalized;
+      }
+      currentQueueIndex = index;
+      state.currentEpisode = normalized;
+      state.currentTime = 0;
+      state.playbackRate = Number(elements.playbackSpeed.value) || 1;
+      elements.audio.pause();
+      elements.audio.src = normalized.audioUrl;
+      elements.audio.playbackRate = state.playbackRate;
+      elements.audio.load();
+      renderNowPlaying();
+      renderQueue();
+      placePlayerUnderEpisode();
+      saveState();
+      const playPromise = elements.audio.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(error => {
+          setStatus(elements.playerStatus, "The episode is loaded. Press Play in the audio controls to start it. " + (error && error.name === "NotAllowedError" ? "Your browser requires a direct play action." : "The audio source may be unavailable."));
+        });
+      }
+    }
+
+    function renderQueue() {
+      elements.queueList.replaceChildren();
+      elements.queueEmpty.hidden = state.queue.length > 0;
+      state.queue.forEach((episode, index) => {
+        const item = makeElement("li");
+        const card = makeElement("fieldset");
+        card.append(makeElement("legend", "Queued episode"));
+        const isCurrent = state.currentEpisode && episode.id === state.currentEpisode.id;
+        card.append(makeElement("strong", (isCurrent ? "Now Playing: " : "") + episode.title));
+        card.append(makeElement("p", episode.showTitle + " | " + formatDate(episode.date)));
+        const play = makeElement("button", "Play");
+        play.type = "button";
+        play.addEventListener("click", () => playEpisode(episode));
+        const actions = [play];
+        const up = makeElement("button", "Move Up");
+        up.type = "button";
+        up.disabled = index === 0;
+        up.addEventListener("click", () => moveQueueItem(index, -1));
+        actions.push(up);
+        const down = makeElement("button", "Move Down");
+        down.type = "button";
+        down.disabled = index === state.queue.length - 1;
+        down.addEventListener("click", () => moveQueueItem(index, 1));
+        actions.push(down);
+        const remove = makeElement("button", "Remove");
+        remove.type = "button";
+        remove.addEventListener("click", () => removeQueueItem(index));
+        actions.push(remove);
+        card.append(makeActionGroup("Queue actions", actions));
+        item.append(card, document.createElement("hr"));
+        elements.queueList.append(item);
+      });
+    }
+
+    function moveQueueItem(index, direction) {
+      const target = index + direction;
+      if (target < 0 || target >= state.queue.length) return;
+      const temp = state.queue[index];
+      state.queue[index] = state.queue[target];
+      state.queue[target] = temp;
+      if (currentQueueIndex === index) currentQueueIndex = target;
+      else if (currentQueueIndex === target) currentQueueIndex = index;
+      saveState();
+      renderQueue();
+    }
+
+    function removeQueueItem(index) {
+      if (index < 0 || index >= state.queue.length) return;
+      const removingCurrent = state.currentEpisode && state.queue[index] && state.queue[index].id === state.currentEpisode.id;
+      state.queue.splice(index, 1);
+      if (removingCurrent) currentQueueIndex = -1;
+      else if (index < currentQueueIndex) currentQueueIndex -= 1;
+      saveState();
+      renderQueue();
+    }
+
+    function clearQueue() {
+      state.queue = [];
+      currentQueueIndex = -1;
+      saveState();
+      renderQueue();
+      setStatus(elements.playerStatus, "Playback queue cleared.");
+    }
+
+    function playNextInQueue() {
+      let nextIndex;
+      if (currentQueueIndex < 0) nextIndex = 0;
+      else nextIndex = currentQueueIndex + 1;
+      if (nextIndex >= state.queue.length) {
+        setStatus(elements.playerStatus, "There are no more episodes in the queue.");
+        return;
+      }
+      playEpisode(state.queue[nextIndex]);
+    }
+
+    function playPrevious() {
+      if (elements.audio.currentTime > 5) {
+        elements.audio.currentTime = 0;
+        return;
+      }
+      const previousIndex = currentQueueIndex - 1;
+      if (previousIndex >= 0 && state.queue[previousIndex]) {
+        playEpisode(state.queue[previousIndex]);
+      } else {
+        elements.audio.currentTime = 0;
+      }
+    }
+
+    function renderNowPlaying() {
+      elements.nowPlaying.replaceChildren();
+      if (!state.currentEpisode) {
+        elements.nowPlaying.append(makeElement("p", "Nothing is playing."));
+        return;
+      }
+      const episode = state.currentEpisode;
+      const image = makeImage(episode.image || episode.showArtwork, episode.showTitle + " artwork", 80);
+      if (image) elements.nowPlaying.append(image);
+      elements.nowPlaying.append(makeElement("h3", episode.title));
+      elements.nowPlaying.append(makeElement("p", episode.showTitle));
+      if (episode.link) elements.nowPlaying.append(makeExternalLink(episode.link, "Episode page"));
+    }
+
+    function recordHistory(episode) {
+      if (!playedEpisodeIdSet.has(episode.id)) {
+        playedEpisodeIdSet.add(episode.id);
+        state.playedEpisodeIds = [...playedEpisodeIdSet];
+      }
+      state.history = state.history.filter(item => item.id !== episode.id);
+      state.history.unshift({ ...persistableEpisode(episode), playedAt: new Date().toISOString() });
+      state.history = state.history.slice(0, MAX_HISTORY);
+      saveState();
+      renderHistory();
+      renderLatestEpisodes();
+    }
+
+    function toggleFavorite(episode) {
+      const index = state.favorites.findIndex(item => item.id === episode.id);
+      if (index >= 0) {
+        state.favorites.splice(index, 1);
+      } else {
+        state.favorites.unshift(persistableEpisode(episode));
+        elements.favoritesSection.open = true;
+      }
+      saveState();
+      renderFavorites();
+      for (const panel of showPanels) {
+        if (panel.loaded) renderEpisodes(panel);
+      }
+    }
+
+    function episodeHasBeenPlayed(episode) {
+      return playedEpisodeIdSet.has(episode.id) || state.history.some(item => item && item.id === episode.id);
+    }
+
+    function episodeReleaseTime(episode) {
+      if (!episode.date) return Number.NEGATIVE_INFINITY;
+      const timestamp = Date.parse(episode.date);
+      return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+    }
+
+    function renderLatestEpisodes() {
+      const subscribedIds = new Set(state.library.map(show => show.id));
+      const episodes = [];
+      for (const [showId, feedData] of latestEpisodesByShow) {
+        if (!subscribedIds.has(showId)) continue;
+        for (const episode of feedData.episodes) {
+          if (!episodeHasBeenPlayed(episode)) episodes.push(episode);
+        }
+      }
+      episodes.sort((a, b) => {
+        const aTime = episodeReleaseTime(a);
+        const bTime = episodeReleaseTime(b);
+        if (aTime !== bTime) return bTime > aTime ? 1 : -1;
+        return a.showTitle.localeCompare(b.showTitle) || a.title.localeCompare(b.title);
+      });
+      latestEpisodePanel.episodes = episodes;
+      const loadedSubscriptionCount = state.library.filter(show => latestEpisodesByShow.has(show.id)).length;
+      if (!state.library.length) {
+        latestEpisodePanel.emptyMessage = "Subscribe to podcasts to see their latest unplayed episodes here.";
+      } else if (loadedSubscriptionCount < state.library.length) {
+        latestEpisodePanel.emptyMessage = "Checking your subscriptions for episodes. Use Refresh Latest Episodes to retry feeds that could not be loaded.";
+      } else {
+        latestEpisodePanel.emptyMessage = "You're caught up. No unplayed episodes were found in the loaded subscription feeds.";
+      }
+      elements.latestEmpty.textContent = latestEpisodePanel.emptyMessage;
+      const availableIds = new Set(episodes.map(episode => episode.id));
+      for (const expandedId of latestEpisodePanel.expandedEpisodes) {
+        if (!availableIds.has(expandedId)) latestEpisodePanel.expandedEpisodes.delete(expandedId);
+      }
+      elements.latestEmpty.hidden = episodes.length > 0;
+      renderEpisodes(latestEpisodePanel);
+    }
+
+    async function refreshLatestEpisodes(force) {
+      if (latestRefreshPromise) return latestRefreshPromise;
+      latestRefreshPromise = (async () => {
+        const subscribedShows = [...state.library];
+        if (!subscribedShows.length) {
+          latestEpisodesByShow.clear();
+          renderLatestEpisodes();
+          setStatus(elements.latestStatus, "Subscribe to at least one podcast to check for new episodes.");
+          return;
+        }
+
+        renderLatestEpisodes();
+        let updated = 0;
+        const failures = [];
+        for (let index = 0; index < subscribedShows.length; index += 1) {
+          const show = subscribedShows[index];
+          const existing = latestEpisodesByShow.get(show.id);
+          const freshEnough = existing && Date.now() - existing.refreshedAt < LATEST_CACHE_TTL_MS;
+          if (!force && freshEnough) {
+            updated += 1;
+            continue;
+          }
+
+          setStatus(elements.latestStatus, "Checking " + (index + 1) + " of " + subscribedShows.length + ": " + show.title);
+          try {
+            const feedUrl = await lookupAppleFeed(show);
+            if (!feedUrl) throw new Error("No public RSS feed address was found.");
+            const cachedFeed = feedCache.get(feedUrl);
+            const cacheTime = latestFeedCacheTimestamps.get(feedUrl) || 0;
+            let parsed;
+            if (!force && cachedFeed && Date.now() - cacheTime < LATEST_CACHE_TTL_MS) {
+              parsed = cachedFeed;
+            } else {
+              const fetched = await fetchFeedDocument(feedUrl);
+              parsed = parseFeed(fetched.documentXml, { ...show, feedUrl }, fetched.source);
+              feedCache.set(feedUrl, parsed);
+              latestFeedCacheTimestamps.set(feedUrl, Date.now());
+            }
+            latestEpisodesByShow.set(show.id, {
+              show: parsed.show,
+              episodes: parsed.episodes,
+              refreshedAt: Date.now()
+            });
+            updated += 1;
+            renderLatestEpisodes();
+          } catch (error) {
+            failures.push(show.title + ": " + (error && error.message ? error.message : "feed could not be read"));
+            // Retain a previously loaded feed if a refresh fails.
+            if (existing) existing.lastError = error && error.message ? error.message : "Feed refresh failed";
+          }
+        }
+
+        renderLatestEpisodes();
+        const unplayedCount = latestEpisodePanel.episodes.length;
+        if (failures.length) {
+          setStatus(elements.latestStatus, "Checked " + updated + " of " + subscribedShows.length + " subscriptions. " +
+            unplayedCount + " unplayed episodes are available. Some feeds could not be refreshed: " + failures.join("; "), true);
+        } else {
+          setStatus(elements.latestStatus, "Checked " + subscribedShows.length + " subscriptions. " +
+            unplayedCount + " unplayed episodes, sorted newest first.");
+        }
+      })();
+      try {
+        await latestRefreshPromise;
+      } finally {
+        latestRefreshPromise = null;
+      }
+    }
+
+    function renderFavorites() {
+      elements.favoritesList.replaceChildren();
+      elements.favoritesEmpty.hidden = state.favorites.length > 0;
+      state.favorites.forEach(episode => {
+        const item = makeElement("li");
+        const card = makeElement("fieldset");
+        card.append(makeElement("legend", "Saved episode"));
+        card.append(makeElement("strong", episode.title));
+        card.append(makeElement("p", episode.showTitle + " | " + formatDate(episode.date)));
+        const play = makeElement("button", episode.audioUrl ? "Play" : "No Audio File");
+        play.type = "button";
+        play.disabled = !episode.audioUrl;
+        play.addEventListener("click", () => playEpisode(episode));
+        const remove = makeElement("button", "Remove Saved Episode");
+        remove.type = "button";
+        remove.addEventListener("click", () => toggleFavorite(episode));
+        card.append(makeActionGroup("Saved episode actions", [play, remove]));
+        item.append(card, document.createElement("hr"));
+        elements.favoritesList.append(item);
+      });
+    }
+
+    function renderHistory() {
+      elements.historyList.replaceChildren();
+      elements.historyEmpty.hidden = state.history.length > 0;
+      state.history.forEach(episode => {
+        const item = makeElement("li");
+        const card = makeElement("fieldset");
+        card.append(makeElement("legend", "Previously played"));
+        card.append(makeElement("strong", episode.title));
+        card.append(makeElement("p", episode.showTitle + " | Played " + formatDate(episode.playedAt)));
+        const play = makeElement("button", episode.audioUrl ? "Play Again" : "No Audio File");
+        play.type = "button";
+        play.disabled = !episode.audioUrl;
+        play.addEventListener("click", () => playEpisode(episode));
+        card.append(makeActionGroup("Listening history actions", [play]));
+        item.append(card, document.createElement("hr"));
+        elements.historyList.append(item);
+      });
+    }
+
+    async function handleSearch(event) {
+      event.preventDefault();
+      restoreAllSearchResults();
+      const query = elements.searchQuery.value.trim();
+      if (!query) return;
+      elements.searchSection.open = true;
+      const token = ++searchToken;
+      elements.searchButton.disabled = true;
+      setStatus(elements.searchStatus, "Searching Apple Podcasts and Podcast Index… (cached searches load immediately)");
+      elements.searchResults.replaceChildren();
+      try {
+        const search = await searchPodcasts(query);
+        if (token !== searchToken) return;
+        renderSearchResults(search.results);
+        const sourceSummary = "Apple: " + search.appleCount + "; Podcast Index: " + search.podcastIndexCount + "; duplicates merged: " + search.duplicateCount + ".";
+        const partialWarning = search.failures.length ? " " + search.failures.join(" ") : "";
+        setStatus(elements.searchStatus, search.results.length + " unique podcasts with public feed addresses found. " + sourceSummary + partialWarning, search.failures.length > 0);
+      } catch (error) {
+        if (token !== searchToken) return;
+        setStatus(elements.searchStatus, error.message || "Podcast search failed. Check your internet connection and try again.", true);
+      } finally {
+        if (token === searchToken) elements.searchButton.disabled = false;
+      }
+    }
+
+    async function handleAddFeed(event) {
+      event.preventDefault();
+      const feedUrl = safeHttpUrl(elements.rssUrl.value);
+      if (!feedUrl) {
+        setStatus(elements.rssStatus, "Enter a valid http or https feed URL.", true);
+        return;
+      }
+      const show = normalizeShow({ feedUrl, title: "Podcast from RSS feed" });
+      setStatus(elements.rssStatus, "Reading feed and adding the podcast…");
+      try {
+        const fetched = await fetchFeedDocument(feedUrl);
+        const parsed = parseFeed(fetched.documentXml, show, fetched.source);
+        if (!parsed.episodes.length) throw new Error("The feed opened, but it did not contain any podcast episodes.");
+        feedCache.set(feedUrl, parsed);
+        latestFeedCacheTimestamps.set(feedUrl, Date.now());
+        subscribeShow(parsed.show);
+        elements.rssUrl.value = "";
+        elements.rssSection.open = false;
+        elements.librarySection.open = true;
+        const panel = libraryPanels.get(parsed.show.id);
+        if (panel) {
+          panel.container.hidden = false;
+          panel.viewButton.textContent = "Hide Episodes";
+          await openShow(parsed.show, panel, { prefetched: parsed });
+        }
+        setStatus(elements.rssStatus, "Podcast added to your library.");
+      } catch (error) {
+        setStatus(elements.rssStatus, error.message || "Could not read that RSS feed.", true);
+      }
+    }
+
+    function restorePlayer() {
+      const rate = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].includes(Number(state.playbackRate)) ? Number(state.playbackRate) : 1;
+      elements.playbackSpeed.value = String(rate);
+      elements.audio.playbackRate = rate;
+      if (state.currentEpisode && safeHttpUrl(state.currentEpisode.audioUrl)) {
+        state.currentEpisode = normalizeEpisode(state.currentEpisode);
+        currentQueueIndex = state.queue.findIndex(item => item.id === state.currentEpisode.id);
+        elements.audio.addEventListener("loadedmetadata", function restorePosition() {
+          if (Number.isFinite(state.currentTime) && state.currentTime > 0 && state.currentTime < elements.audio.duration) {
+            elements.audio.currentTime = state.currentTime;
+          }
+          elements.audio.removeEventListener("loadedmetadata", restorePosition);
+        });
+        elements.audio.src = state.currentEpisode.audioUrl;
+        elements.audio.load();
+        renderNowPlaying();
+      }
+    }
+
+    elements.searchForm.addEventListener("submit", handleSearch);
+    elements.backToSearchResults.addEventListener("click", restoreAllSearchResults);
+
+    // If a podcast section containing the active episode is collapsed, move
+    // the shared player to Now Playing so the controls remain accessible.
+    elements.searchSection.addEventListener("toggle", () => {
+      if (!elements.searchSection.open) placePlayerUnderEpisode();
+    });
+    elements.librarySection.addEventListener("toggle", () => {
+      if (!elements.librarySection.open) placePlayerUnderEpisode();
+    });
+    elements.nowPlayingSection.addEventListener("toggle", () => {
+      if (!elements.nowPlayingSection.open) nowPlayingAutoOpened = false;
+    });
+    elements.rssForm.addEventListener("submit", handleAddFeed);
+    elements.latestSection.addEventListener("toggle", () => {
+      if (elements.latestSection.open) refreshLatestEpisodes(false);
+      else placePlayerUnderEpisode();
+    });
+    elements.refreshLatest.addEventListener("click", () => refreshLatestEpisodes(true));
+    elements.clearQueue.addEventListener("click", clearQueue);
+    elements.playNext.addEventListener("click", playNextInQueue);
+    elements.nextEpisode.addEventListener("click", playNextInQueue);
+    elements.previousEpisode.addEventListener("click", playPrevious);
+    elements.skipBack.addEventListener("click", () => {
+      if (Number.isFinite(elements.audio.currentTime)) elements.audio.currentTime = Math.max(0, elements.audio.currentTime - 15);
+    });
+    elements.skipForward.addEventListener("click", () => {
+      if (Number.isFinite(elements.audio.currentTime)) {
+        const target = elements.audio.currentTime + 30;
+        elements.audio.currentTime = Number.isFinite(elements.audio.duration) ? Math.min(elements.audio.duration, target) : target;
+      }
+    });
+    elements.playbackSpeed.addEventListener("change", () => {
+      const rate = Number(elements.playbackSpeed.value) || 1;
+      state.playbackRate = rate;
+      elements.audio.playbackRate = rate;
+      saveState();
+    });
+    elements.clearHistory.addEventListener("click", () => {
+      state.history = [];
+      saveState();
+      renderHistory();
+    });
+
+    elements.audio.addEventListener("timeupdate", () => {
+      const now = Date.now();
+      if (now - lastSavedTime > 5000) {
+        state.currentTime = Number.isFinite(elements.audio.currentTime) ? elements.audio.currentTime : 0;
+        saveState();
+        lastSavedTime = now;
+      }
+    });
+    elements.audio.addEventListener("loadedmetadata", () => {
+      if (state.currentEpisode && elements.audio.src === state.currentEpisode.audioUrl) {
+        setStatus(elements.playerStatus, "Ready: " + state.currentEpisode.title);
+      }
+    });
+    elements.audio.addEventListener("play", () => {
+      if (state.currentEpisode) recordHistory(state.currentEpisode);
+      setStatus(elements.playerStatus, "Playing: " + (state.currentEpisode ? state.currentEpisode.title : "podcast episode"));
+    });
+    elements.audio.addEventListener("pause", () => {
+      if (!elements.audio.ended && state.currentEpisode) setStatus(elements.playerStatus, "Paused: " + state.currentEpisode.title);
+    });
+    elements.audio.addEventListener("ended", playNextInQueue);
+    elements.audio.addEventListener("error", () => {
+      if (state.currentEpisode) setStatus(elements.playerStatus, "The audio file could not be played. The publisher may have removed it or the server may be unavailable.", true);
+    });
+    window.addEventListener("pagehide", () => {
+      if (!elements.audio.paused && Number.isFinite(elements.audio.currentTime)) state.currentTime = elements.audio.currentTime;
+      saveState();
+    });
+
+    renderLibrary();
+    renderLatestEpisodes();
+    renderQueue();
+    renderFavorites();
+    renderHistory();
+    restorePlayer();
+    placePlayerUnderEpisode();
+  </script>
+</body>
+</html>
