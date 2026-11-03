@@ -1,106 +1,86 @@
 # Podcast Player
 
-A lightweight, browser-based podcast player built entirely with vanilla HTML and JavaScript.
+A lightweight podcast player that runs directly in a web browser. The application is a single HTML file containing its markup and vanilla JavaScript. It uses no CSS, frameworks, build tools, backend, account system, or embedded API keys.
 
-The goal is simple: make a functional podcast player that can be downloaded, opened locally, or hosted on GitHub Pages without requiring a backend, installation, build tools, API keys, frameworks, or external JavaScript libraries.
-
-**This project is 100% vibe coded.** It started as a quick, low-effort experiment for fun, built with AI assistance and a willingness to see how far a single HTML file could go. It was never intended to be a serious commercial product or an especially ambitious software engineering exercise. It gradually became more capable than originally planned.
+The project began as a small, 100% AI-assisted vibe-coding experiment. It grew into a practical personal podcast player. It remains an experimental hobby project.
 
 ## Features
 
-- Search for podcasts through Apple Podcasts and Podcast Index.
-- Combine search results and identify duplicate shows.
-- Browse podcast RSS feeds and individual episodes.
-- Play episodes directly from their publishers.
-- Subscribe to podcasts and maintain a personal library.
-- View the latest unplayed episodes across subscriptions.
-- Expandable podcast and episode sections.
-- Playback queue management.
-- Saved and favorite episodes.
-- Listening history.
-- Remember playback position.
-- Playback speed controls.
-- Manual RSS feed importing.
-- Local browser storage for subscriptions and preferences.
+- Search Apple Podcasts and Podcast Index through the PinePods hosted search service.
+- Merge catalogue results and remove duplicate shows.
+- Add podcasts manually using a public RSS or Atom feed address.
+- Browse and stream episodes from subscribed feeds.
+- Manage subscriptions, saved episodes, listening history, and a playback queue.
+- See the latest unplayed episodes across subscriptions.
+- Track episodes as unplayed, in progress, or played. Episodes are automatically marked played after 90% completion, and can also be marked manually.
+- Resume episodes from saved playback positions.
+- Filter subscriptions and latest episodes; sort latest episodes by date, podcast, or title.
+- Import and export subscriptions using OPML.
+- Export and restore complete JSON backups, either merging with current data or replacing it.
+- Refresh feeds with up to three concurrent requests, retry temporary failures, retain previously loaded data when a refresh fails, and inspect feed diagnostics.
+- Remember which main sections were expanded.
+- Use keyboard shortcuts during playback.
 
-## Design Philosophy
+## Run locally
 
-The application deliberately uses plain HTML and vanilla JavaScript.
+1. Download `index.html`.
+2. Open it in a current desktop or mobile browser.
+3. Search for a podcast or add a public RSS feed.
+4. Subscribe to a show, open its episode list, and play an episode.
 
-There is no CSS. The intentionally unstyled appearance is part of the project rather than an unfinished design decision.
+The app can also be hosted from the root of a GitHub Pages repository. Naming the main file `index.html` allows GitHub Pages to serve it as the site's entry page.
 
-The application uses native HTML elements for sections, controls, spacing, and interaction wherever practical.
+An internet connection is required for catalogue search, feed retrieval, and audio streaming. Browser support for local file access and media playback varies.
 
-The entire application is distributed as one HTML file.
+## Data and privacy
 
-## Requirements
+Subscriptions, queue contents, favorites, listening history, playback positions, and preferences are stored in the browser's local storage for the current site origin. Clearing browser site data can erase this information. Use the JSON backup feature before moving browsers or clearing site data.
 
-- A modern web browser.
-- An internet connection for podcast discovery, RSS feeds, and audio streaming.
+Podcast searches are sent to Apple Podcasts and the PinePods hosted search service. RSS requests may use the public `proxy.cors.dev` CORS proxy when a publisher's feed does not permit direct browser access. Audio is streamed from the podcast publisher or its hosting provider. These external services can receive request metadata such as IP address and requested URLs. The project does not operate its own server or user database.
 
-No installation or compilation is required.
+No API keys are embedded in the HTML file. The PinePods search endpoint and public CORS proxy are third-party dependencies; their availability, policies, and behavior may change.
 
-## Running Locally
+## Import and backup
 
-1. Download `podcast_player.html`.
-2. Open the file in a modern web browser.
-3. Search for a podcast or import an RSS feed.
-4. Select a show, browse its episodes, and start listening.
+- Use **Export Subscriptions as OPML** to move subscriptions to another podcast application.
+- Use **Import OPML file** to add subscriptions from a compatible OPML export. Existing subscriptions are retained and duplicate feed URLs are skipped.
+- Use **Download JSON Backup** to save subscriptions, queue, favorites, history, played status, in-progress positions, and playback settings.
+- Import a JSON backup in merge mode to retain current items and add missing ones. Select the replace option only when you intend to replace the current app data.
 
-The application can also be hosted through GitHub Pages using the same HTML file.
+OPML contains subscription addresses and titles. JSON backups contain the app's locally stored podcast and listening data, so keep backup files private if that information is sensitive to you.
 
-Some external services may behave differently when the application is opened through `file://` rather than HTTP or HTTPS.
+## Keyboard shortcuts
 
-## External Services
+- `Space`: play or pause the current episode, when focus is outside an input or select control.
+- `Alt` + `Left Arrow`: skip back 15 seconds.
+- `Alt` + `Right Arrow`: skip forward 30 seconds.
+- `Alt` + `N`: play the next item in the queue.
 
-The application relies on external services for podcast discovery and feed retrieval.
+## Design
 
-- **Apple Podcasts:** Podcast catalogue search.
-- **Podcast Index:** Additional podcast discovery through the PinePods hosted search service.
-- **Podcast publishers:** RSS feeds, episode metadata, and audio streams.
-
-These services are independently operated and may experience outages, rate limits, or changes to their interfaces.
-
-No personal API keys are embedded in the application.
-
-## Privacy and Storage
-
-Subscriptions, playback information, favorites, and other application data are stored locally in the browser.
-
-Search queries are transmitted to the external podcast discovery services.
-
-Audio is streamed from the podcast publisher's hosting service.
-
-The application does not currently require user accounts or a centralized application database.
-
-Clearing browser data may erase locally stored application information.
+The deliberately plain interface uses native HTML elements such as `details`, `fieldset`, `table`, and `audio`. There is no CSS. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file.
 
 ## Limitations
 
-This is an experimental project. It has not undergone extensive compatibility, security, accessibility, or performance testing.
+This is an experimental project and has not been exhaustively tested across every browser, feed format, or podcast host. Some feeds block browser requests, some media hosts restrict playback, and external catalogue or proxy services can become unavailable. Browser local-storage limits vary. The app cannot guarantee that every RSS or Atom extension will be interpreted correctly.
 
-Potential limitations include:
+Feed diagnostics can help identify failed requests. A failed refresh retains the last successfully loaded feed data when available.
 
-- Some RSS feeds may be inaccessible because of browser CORS restrictions.
-- External search services may become unavailable or change their APIs.
-- Some podcast publishers may use unsupported feed formats or audio delivery methods.
-- Playback and feed retrieval depend on the availability of external servers.
-- Local browser storage is subject to browser-specific limitations.
+## Development
 
-## Development Status
+- Application version: `2.0.0`
+- Storage schema: `2`
+- Main application: `index.html`
+- Language: HTML and vanilla JavaScript
+- Styling: none
+- Build process: none
 
-This is an ongoing hobby project. Features may change, break, or be redesigned as development continues.
-
-The current priority is maintaining a simple, portable, single-file application while gradually improving its functionality and reliability.
+See [CHANGELOG.md](CHANGELOG.md) for project changes.
 
 ## License
 
-GNU General Public License v3.0 or later (GPL-3.0-or-later).
-
-See the `LICENSE` file for details.
+This project is licensed under the GNU General Public License, version 3, or (at your option) any later version. See [LICENSE](LICENSE) for the full license text.
 
 ## Acknowledgment
 
 Built with HTML, JavaScript, curiosity, and an unreasonable amount of AI-assisted vibe coding.
-
-Use it, modify it, break it, improve it, and have fun.

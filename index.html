@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
   <title>Podcast Player</title>
+  <meta name="application-version" content="2.0.0">
 </head>
 <body>
   <header>
@@ -46,6 +47,8 @@
     <details id="library-section">
       <summary>Your Library</summary>
       <fieldset>
+        <p><label for="library-filter">Find a subscribed podcast</label></p>
+        <p><input id="library-filter" type="search" placeholder="Filter your subscriptions" size="35"></p>
         <p id="library-empty">You have not subscribed to any shows yet.</p>
         <ul id="library-list"></ul>
       </fieldset>
@@ -57,7 +60,9 @@
       <summary>Latest Episodes</summary>
       <fieldset>
         <p id="latest-status" role="status" aria-live="polite">Open this section to check your subscriptions for new episodes.</p>
-        <p><button type="button" id="refresh-latest">Refresh Latest Episodes</button></p>
+        <p><button type="button" id="refresh-latest">Refresh Latest Episodes</button> <button type="button" id="mark-all-latest-played">Mark All Listed Episodes Played</button></p>
+        <p><label for="latest-filter">Filter latest episodes</label> <input id="latest-filter" type="search" size="30" placeholder="Filter episodes"></p>
+        <p><label for="latest-sort">Sort episodes</label> <select id="latest-sort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="show">Podcast title</option><option value="episode">Episode title</option></select></p>
         <p id="latest-empty">Subscribe to podcasts to see their latest unplayed episodes here.</p>
         <ol id="latest-list"></ol>
       </fieldset>
@@ -144,9 +149,50 @@
     </details>
   </main>
 
+    <hr>
+
+    <details id="progress-section">
+      <summary>In Progress</summary>
+      <fieldset>
+        <p id="progress-empty">No episodes are currently in progress.</p>
+        <ol id="progress-list"></ol>
+        <p><button type="button" id="clear-completed-queue">Remove Played Episodes from Queue</button></p>
+      </fieldset>
+    </details>
+
+    <hr>
+
+    <details id="data-section">
+      <summary>Import, Export, and Backup</summary>
+      <fieldset>
+        <legend>Podcast subscriptions</legend>
+        <p><button type="button" id="export-opml">Export Subscriptions as OPML</button></p>
+        <p><label for="import-opml">Import OPML file</label> <input id="import-opml" type="file" accept=".opml,.xml,text/xml,application/xml"></p>
+        <p id="opml-status" role="status" aria-live="polite"></p>
+      </fieldset>
+      <fieldset>
+        <legend>Complete app backup</legend>
+        <p><button type="button" id="export-backup">Download JSON Backup</button></p>
+        <p><label for="import-backup">Restore or merge JSON backup</label> <input id="import-backup" type="file" accept=".json,application/json"></p>
+        <p><label><input type="checkbox" id="replace-backup"> Replace current data instead of merging</label></p>
+        <p id="backup-status" role="status" aria-live="polite"></p>
+      </fieldset>
+    </details>
+
+    <hr>
+
+    <details id="diagnostics-section">
+      <summary>Diagnostics</summary>
+      <fieldset>
+        <p id="diagnostics-summary">No feed diagnostics have been recorded.</p>
+        <ul id="diagnostics-list"></ul>
+        <p><button type="button" id="clear-diagnostics">Clear Diagnostics</button></p>
+      </fieldset>
+    </details>
+
   <footer>
     <hr>
-    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted search service. Episode lists and Latest Episodes come from subscribed shows’ public RSS or Atom feeds.</p>
+    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted search service. Episode lists and Latest Episodes come from subscribed shows’ public RSS or Atom feeds. Listening status, subscriptions, queues, and backups are stored in this browser.</p>
   </footer>
 
   <script>
@@ -205,7 +251,27 @@
       favoritesList: document.getElementById("favorites-list"),
       historyEmpty: document.getElementById("history-empty"),
       historyList: document.getElementById("history-list"),
-      clearHistory: document.getElementById("clear-history")
+      clearHistory: document.getElementById("clear-history"),
+      libraryFilter: document.getElementById("library-filter"),
+      latestFilter: document.getElementById("latest-filter"),
+      latestSort: document.getElementById("latest-sort"),
+      markAllLatestPlayed: document.getElementById("mark-all-latest-played"),
+      progressSection: document.getElementById("progress-section"),
+      progressList: document.getElementById("progress-list"),
+      progressEmpty: document.getElementById("progress-empty"),
+      clearCompletedQueue: document.getElementById("clear-completed-queue"),
+      dataSection: document.getElementById("data-section"),
+      exportOpml: document.getElementById("export-opml"),
+      importOpml: document.getElementById("import-opml"),
+      opmlStatus: document.getElementById("opml-status"),
+      exportBackup: document.getElementById("export-backup"),
+      importBackup: document.getElementById("import-backup"),
+      replaceBackup: document.getElementById("replace-backup"),
+      backupStatus: document.getElementById("backup-status"),
+      diagnosticsSection: document.getElementById("diagnostics-section"),
+      diagnosticsSummary: document.getElementById("diagnostics-summary"),
+      diagnosticsList: document.getElementById("diagnostics-list"),
+      clearDiagnostics: document.getElementById("clear-diagnostics")
     };
 
     function emptyState() {
@@ -215,6 +281,10 @@
         favorites: [],
         history: [],
         playedEpisodeIds: [],
+        inProgress: [],
+        diagnostics: [],
+        expandedSections: {},
+        schemaVersion: 2,
         currentEpisode: null,
         currentTime: 0,
         playbackRate: 1
@@ -235,6 +305,9 @@
           playedEpisodeIds: Array.isArray(saved.playedEpisodeIds)
             ? [...new Set(saved.playedEpisodeIds.filter(id => typeof id === "string" && id))]
             : (Array.isArray(saved.history) ? [...new Set(saved.history.map(item => item && item.id).filter(id => typeof id === "string" && id))] : initial.playedEpisodeIds),
+          inProgress: Array.isArray(saved.inProgress) ? saved.inProgress.filter(item => item && item.episode && typeof item.episode.id === "string") : initial.inProgress,
+          diagnostics: Array.isArray(saved.diagnostics) ? saved.diagnostics.slice(-100) : initial.diagnostics,
+          expandedSections: saved.expandedSections && typeof saved.expandedSections === "object" ? saved.expandedSections : initial.expandedSections,
           currentEpisode: saved.currentEpisode && typeof saved.currentEpisode === "object" ? saved.currentEpisode : null,
           currentTime: Number.isFinite(Number(saved.currentTime)) && Number(saved.currentTime) >= 0 ? Number(saved.currentTime) : 0,
           playbackRate: Number.isFinite(Number(saved.playbackRate)) ? Number(saved.playbackRate) : 1
@@ -513,6 +586,37 @@
       }
     }
 
+    function recordDiagnostic(feedUrl, message, kind) {
+      const entry = { feedUrl: safeHttpUrl(feedUrl), message: String(message || "Unknown feed error"), kind: kind || "error", at: new Date().toISOString() };
+      state.diagnostics = [entry, ...(state.diagnostics || [])].slice(0, 100);
+      renderDiagnostics();
+      saveState();
+    }
+
+    function renderDiagnostics() {
+      const entries = (state.diagnostics || []).slice(0, 100);
+      elements.diagnosticsList.replaceChildren();
+      elements.diagnosticsSummary.textContent = entries.length ? entries.length + " recent feed or storage events recorded." : "No feed diagnostics have been recorded.";
+      entries.forEach(entry => {
+        const item = makeElement("li", formatDate(entry.at) + " | " + (entry.kind || "event") + " | " + (entry.feedUrl || "app") + " | " + entry.message);
+        elements.diagnosticsList.append(item);
+      });
+    }
+
+    async function retryTransient(operation, attempts) {
+      let lastError;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try { return await operation(); } catch (error) {
+          lastError = error;
+          const message = String(error && error.message || "");
+          const transient = /HTTP 408|HTTP 429|HTTP 5\d\d|timeout|network|failed to fetch|aborted/i.test(message);
+          if (!transient || attempt === attempts - 1) break;
+          await new Promise(resolve => setTimeout(resolve, 700 * (2 ** attempt)));
+        }
+      }
+      throw lastError;
+    }
+
     async function fetchFeedDocument(feedUrl) {
       const url = safeHttpUrl(feedUrl);
       if (!url) throw new Error("This podcast does not have a valid public RSS feed URL.");
@@ -530,6 +634,7 @@
       } catch (proxyError) {
         const reason = proxyError && proxyError.message ? proxyError.message : "unknown error";
         const directReason = directError && directError.message ? directError.message : "direct feed request failed";
+        recordDiagnostic(url, "Direct: " + directReason + "; proxy: " + reason, "feed fetch failed");
         throw new Error("Could not read this podcast's feed. Direct request: " + directReason + ". Proxy request: " + reason + ". The feed may be private, unavailable, or larger than the proxy permits.");
       }
     }
@@ -581,9 +686,9 @@
         if (linkNode) link = linkNode.getAttribute("href") || linkNode.textContent.trim();
         const episodeImage = attributeFromImage(entry) || image;
         const fileSize = enclosure ? Number(enclosure.getAttribute("length")) || 0 : 0;
-        const idSeed = guid || audioUrl || (titleText + "|" + date + "|" + index);
+        const idSeed = guid ? "guid:" + guid : (audioUrl ? "audio:" + audioUrl : "meta:" + titleText + "|" + date + "|" + index);
         return normalizeEpisode({
-          id: simpleHash(actualShow.id + "|" + idSeed),
+          id: simpleHash((actualShow.feedUrl || actualShow.id) + "|" + idSeed),
           title: titleText,
           showId: actualShow.id,
           showTitle: actualShow.title,
@@ -1015,7 +1120,8 @@
       elements.libraryList.replaceChildren();
       libraryPanels.clear();
       elements.libraryEmpty.hidden = state.library.length > 0;
-      const sorted = [...state.library].sort((a, b) => a.title.localeCompare(b.title));
+      const query = elements.libraryFilter.value.trim().toLowerCase();
+      const sorted = [...state.library].filter(show => !query || (show.title + " " + show.artist).toLowerCase().includes(query)).sort((a, b) => a.title.localeCompare(b.title));
       sorted.forEach(show => {
         const card = createShowCard(show, true);
         elements.libraryList.append(card.item);
@@ -1156,6 +1262,9 @@
         save.type = "button";
         save.addEventListener("click", () => toggleFavorite(episode));
         actions.push(save);
+        const played = makeElement("button", episodeHasBeenPlayed(episode) ? "Mark Unplayed" : "Mark Played");
+        played.type = "button"; played.addEventListener("click", () => markEpisodePlayed(episode, !episodeHasBeenPlayed(episode)));
+        actions.push(played);
         if (episode.link) actions.push(makeExternalLink(episode.link, "Episode page"));
 
         expandedContent.append(makeActionGroup("Episode actions", actions));
@@ -1259,6 +1368,9 @@
         index = state.queue.length - 1;
       } else {
         state.queue[index] = normalized;
+      }
+      if (state.currentEpisode && Number.isFinite(elements.audio.currentTime) && elements.audio.currentTime > 0) {
+        updateProgress(state.currentEpisode, elements.audio.currentTime, elements.audio.duration);
       }
       currentQueueIndex = index;
       state.currentEpisode = normalized;
@@ -1380,19 +1492,60 @@
       elements.nowPlaying.append(makeElement("h3", episode.title));
       elements.nowPlaying.append(makeElement("p", episode.showTitle));
       if (episode.link) elements.nowPlaying.append(makeExternalLink(episode.link, "Episode page"));
+      const mark = makeElement("button", episodeHasBeenPlayed(episode) ? "Mark Unplayed" : "Mark Played");
+      mark.type = "button"; mark.addEventListener("click", () => markEpisodePlayed(episode, !episodeHasBeenPlayed(episode)));
+      elements.nowPlaying.append(mark);
+    }
+
+    function updateProgress(episode, currentTime, duration) {
+      if (!episode || episodeHasBeenPlayed(episode)) return;
+      const entry = { episode: persistableEpisode(episode), currentTime: Math.max(0, Number(currentTime) || 0), duration: Math.max(0, Number(duration) || 0), updatedAt: new Date().toISOString() };
+      state.inProgress = (state.inProgress || []).filter(item => item.episode.id !== episode.id);
+      if (entry.currentTime > 0) state.inProgress.unshift(entry);
+      state.inProgress = state.inProgress.slice(0, 200);
+      saveState();
+      renderProgress();
+    }
+
+    function markEpisodePlayed(episode, played) {
+      const normalized = persistableEpisode(episode);
+      if (played) {
+        playedEpisodeIdSet.add(normalized.id);
+        state.playedEpisodeIds = [...playedEpisodeIdSet];
+        state.inProgress = (state.inProgress || []).filter(item => item.episode.id !== normalized.id);
+        state.history = state.history.filter(item => item.id !== normalized.id);
+        state.history.unshift({ ...normalized, playedAt: new Date().toISOString() });
+        state.history = state.history.slice(0, MAX_HISTORY);
+      } else {
+        playedEpisodeIdSet.delete(normalized.id);
+        state.playedEpisodeIds = [...playedEpisodeIdSet];
+        state.history = state.history.filter(item => item.id !== normalized.id);
+      }
+      saveState();
+      renderHistory(); renderProgress(); renderLatestEpisodes(); renderNowPlaying();
+      for (const panel of showPanels) if (panel.loaded) renderEpisodes(panel);
     }
 
     function recordHistory(episode) {
-      if (!playedEpisodeIdSet.has(episode.id)) {
-        playedEpisodeIdSet.add(episode.id);
-        state.playedEpisodeIds = [...playedEpisodeIdSet];
-      }
-      state.history = state.history.filter(item => item.id !== episode.id);
-      state.history.unshift({ ...persistableEpisode(episode), playedAt: new Date().toISOString() });
-      state.history = state.history.slice(0, MAX_HISTORY);
-      saveState();
-      renderHistory();
-      renderLatestEpisodes();
+      // History records completed listening. The threshold is also checked by timeupdate.
+      if (episodeHasBeenPlayed(episode)) return;
+      markEpisodePlayed(episode, true);
+    }
+
+    function renderProgress() {
+      elements.progressList.replaceChildren();
+      const entries = (state.inProgress || []).filter(item => item.episode && !episodeHasBeenPlayed(item.episode));
+      elements.progressEmpty.hidden = entries.length > 0;
+      entries.forEach(entry => {
+        const item = makeElement("li");
+        const title = makeElement("strong", entry.episode.title);
+        const pct = entry.duration > 0 ? Math.min(99, Math.floor(entry.currentTime / entry.duration * 100)) : 0;
+        item.append(title, makeElement("p", entry.episode.showTitle + " | " + pct + "% listened"));
+        const resume = makeElement("button", "Resume"); resume.type = "button"; resume.addEventListener("click", () => { playEpisode(entry.episode); elements.audio.addEventListener("loadedmetadata", function seekResume() { elements.audio.currentTime = Math.min(entry.currentTime, Math.max(0, elements.audio.duration - 1)); elements.audio.removeEventListener("loadedmetadata", seekResume); }, { once: true }); });
+        const played = makeElement("button", "Mark Played"); played.type = "button"; played.addEventListener("click", () => markEpisodePlayed(entry.episode, true));
+        item.append(makeActionGroup("In-progress actions", [resume, played]), document.createElement("hr"));
+        elements.progressList.append(item);
+      });
     }
 
     function toggleFavorite(episode) {
@@ -1429,13 +1582,18 @@
           if (!episodeHasBeenPlayed(episode)) episodes.push(episode);
         }
       }
+      const sortMode = elements.latestSort.value;
       episodes.sort((a, b) => {
-        const aTime = episodeReleaseTime(a);
-        const bTime = episodeReleaseTime(b);
-        if (aTime !== bTime) return bTime > aTime ? 1 : -1;
+        const aTime = episodeReleaseTime(a), bTime = episodeReleaseTime(b);
+        if (sortMode === "oldest" && aTime !== bTime) return aTime - bTime;
+        if (sortMode === "show") return a.showTitle.localeCompare(b.showTitle) || bTime - aTime;
+        if (sortMode === "episode") return a.title.localeCompare(b.title);
+        if (aTime !== bTime) return bTime - aTime;
         return a.showTitle.localeCompare(b.showTitle) || a.title.localeCompare(b.title);
       });
-      latestEpisodePanel.episodes = episodes;
+      const latestQuery = elements.latestFilter.value.trim().toLowerCase();
+      const filteredEpisodes = latestQuery ? episodes.filter(ep => (ep.title + " " + ep.showTitle + " " + ep.description).toLowerCase().includes(latestQuery)) : episodes;
+      latestEpisodePanel.episodes = filteredEpisodes;
       const loadedSubscriptionCount = state.library.filter(show => latestEpisodesByShow.has(show.id)).length;
       if (!state.library.length) {
         latestEpisodePanel.emptyMessage = "Subscribe to podcasts to see their latest unplayed episodes here.";
@@ -1445,11 +1603,11 @@
         latestEpisodePanel.emptyMessage = "You're caught up. No unplayed episodes were found in the loaded subscription feeds.";
       }
       elements.latestEmpty.textContent = latestEpisodePanel.emptyMessage;
-      const availableIds = new Set(episodes.map(episode => episode.id));
+      const availableIds = new Set(filteredEpisodes.map(episode => episode.id));
       for (const expandedId of latestEpisodePanel.expandedEpisodes) {
         if (!availableIds.has(expandedId)) latestEpisodePanel.expandedEpisodes.delete(expandedId);
       }
-      elements.latestEmpty.hidden = episodes.length > 0;
+      elements.latestEmpty.hidden = filteredEpisodes.length > 0;
       renderEpisodes(latestEpisodePanel);
     }
 
@@ -1467,44 +1625,38 @@
         renderLatestEpisodes();
         let updated = 0;
         const failures = [];
-        for (let index = 0; index < subscribedShows.length; index += 1) {
-          const show = subscribedShows[index];
-          const existing = latestEpisodesByShow.get(show.id);
-          const freshEnough = existing && Date.now() - existing.refreshedAt < LATEST_CACHE_TTL_MS;
-          if (!force && freshEnough) {
-            updated += 1;
-            continue;
-          }
-
-          setStatus(elements.latestStatus, "Checking " + (index + 1) + " of " + subscribedShows.length + ": " + show.title);
-          try {
-            const feedUrl = await lookupAppleFeed(show);
-            if (!feedUrl) throw new Error("No public RSS feed address was found.");
-            const cachedFeed = feedCache.get(feedUrl);
-            const cacheTime = latestFeedCacheTimestamps.get(feedUrl) || 0;
-            let parsed;
-            if (!force && cachedFeed && Date.now() - cacheTime < LATEST_CACHE_TTL_MS) {
-              parsed = cachedFeed;
-            } else {
-              const fetched = await fetchFeedDocument(feedUrl);
-              parsed = parseFeed(fetched.documentXml, { ...show, feedUrl }, fetched.source);
-              feedCache.set(feedUrl, parsed);
-              latestFeedCacheTimestamps.set(feedUrl, Date.now());
+        let cursor = 0;
+        async function refreshWorker() {
+          while (cursor < subscribedShows.length) {
+            const index = cursor++;
+            const show = subscribedShows[index];
+            const existing = latestEpisodesByShow.get(show.id);
+            const freshEnough = existing && Date.now() - existing.refreshedAt < LATEST_CACHE_TTL_MS;
+            if (!force && freshEnough) { updated += 1; continue; }
+            setStatus(elements.latestStatus, "Refreshing feeds with up to three simultaneous requests. " + (index + 1) + " of " + subscribedShows.length + ": " + show.title);
+            try {
+              const feedUrl = await retryTransient(() => lookupAppleFeed(show), 2);
+              if (!feedUrl) throw new Error("No public RSS feed address was found.");
+              const cachedFeed = feedCache.get(feedUrl);
+              const cacheTime = latestFeedCacheTimestamps.get(feedUrl) || 0;
+              let parsed;
+              if (!force && cachedFeed && Date.now() - cacheTime < LATEST_CACHE_TTL_MS) parsed = cachedFeed;
+              else {
+                const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 3);
+                parsed = parseFeed(fetched.documentXml, { ...show, feedUrl }, fetched.source);
+                feedCache.set(feedUrl, parsed); latestFeedCacheTimestamps.set(feedUrl, Date.now());
+              }
+              latestEpisodesByShow.set(show.id, { show: parsed.show, episodes: parsed.episodes, refreshedAt: Date.now() });
+              updated += 1; renderLatestEpisodes();
+            } catch (error) {
+              const message = error && error.message ? error.message : "feed could not be read";
+              failures.push(show.title + ": " + message);
+              recordDiagnostic(show.feedUrl, message, "feed refresh failed");
+              if (existing) existing.lastError = message;
             }
-            latestEpisodesByShow.set(show.id, {
-              show: parsed.show,
-              episodes: parsed.episodes,
-              refreshedAt: Date.now()
-            });
-            updated += 1;
-            renderLatestEpisodes();
-          } catch (error) {
-            failures.push(show.title + ": " + (error && error.message ? error.message : "feed could not be read"));
-            // Retain a previously loaded feed if a refresh fails.
-            if (existing) existing.lastError = error && error.message ? error.message : "Feed refresh failed";
           }
         }
-
+        await Promise.all(Array.from({ length: Math.min(3, subscribedShows.length) }, () => refreshWorker()));
         renderLatestEpisodes();
         const unplayedCount = latestEpisodePanel.episodes.length;
         if (failures.length) {
@@ -1598,7 +1750,7 @@
       const show = normalizeShow({ feedUrl, title: "Podcast from RSS feed" });
       setStatus(elements.rssStatus, "Reading feed and adding the podcast…");
       try {
-        const fetched = await fetchFeedDocument(feedUrl);
+        const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
         const parsed = parseFeed(fetched.documentXml, show, fetched.source);
         if (!parsed.episodes.length) throw new Error("The feed opened, but it did not contain any podcast episodes.");
         feedCache.set(feedUrl, parsed);
@@ -1617,6 +1769,87 @@
       } catch (error) {
         setStatus(elements.rssStatus, error.message || "Could not read that RSS feed.", true);
       }
+    }
+
+    function downloadBlob(name, content, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const link = makeElement("a", "Download"); link.href = url; link.download = name;
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+
+    function exportOpml() {
+      const escapeXml = value => String(value || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+      const outlines = state.library.map(show => '    <outline text="' + escapeXml(show.title) + '" title="' + escapeXml(show.title) + '" type="rss" xmlUrl="' + escapeXml(show.feedUrl) + '" htmlUrl="' + escapeXml(show.appleUrl) + '" />').join("\n");
+      const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0"><head><title>Podcast Player Subscriptions</title></head><body>\n' + outlines + '\n</body></opml>';
+      downloadBlob("podcast-subscriptions.opml", xml, "text/x-opml;charset=utf-8");
+      setText(elements.opmlStatus, "Exported " + state.library.length + " subscriptions.");
+    }
+
+    async function importOpmlFile(file) {
+      const xml = new DOMParser().parseFromString(await file.text(), "application/xml");
+      if (xml.querySelector("parsererror")) throw new Error("The selected file is not valid OPML/XML.");
+      const outlines = [...xml.getElementsByTagName("outline")];
+      const imported = outlines.map(node => ({ title: node.getAttribute("title") || node.getAttribute("text") || "Imported Podcast", feedUrl: node.getAttribute("xmlUrl") || node.getAttribute("url") || "", appleUrl: node.getAttribute("htmlUrl") || "", source: "OPML import" })).filter(show => safeHttpUrl(show.feedUrl));
+      if (!imported.length) throw new Error("No valid podcast RSS addresses were found in that OPML file.");
+      let added = 0;
+      for (const raw of imported) {
+        const show = normalizeShow(raw);
+        if (!state.library.some(item => item.feedUrl === show.feedUrl || item.id === show.id)) { state.library.push(show); added += 1; }
+      }
+      saveState(); renderLibrary(); renderLatestEpisodes(); elements.librarySection.open = true;
+      setText(elements.opmlStatus, "Imported " + added + " new subscriptions. " + (imported.length - added) + " duplicates were skipped.");
+    }
+
+    function exportBackup() {
+      const payload = { app: "Podcast Player", schemaVersion: 2, exportedAt: new Date().toISOString(), data: state };
+      downloadBlob("podcast-player-backup-" + new Date().toISOString().slice(0,10) + ".json", JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
+      setText(elements.backupStatus, "Backup exported.");
+    }
+
+    async function importBackupFile(file) {
+      const parsed = JSON.parse(await file.text());
+      const incoming = parsed && parsed.data ? parsed.data : parsed;
+      if (!incoming || !Array.isArray(incoming.library) || !Array.isArray(incoming.queue)) throw new Error("This file does not appear to be a compatible podcast player backup.");
+      if (elements.replaceBackup.checked) {
+        latestEpisodesByShow.clear(); feedCache.clear(); latestFeedCacheTimestamps.clear();
+        const clean = emptyState();
+        for (const key of Object.keys(clean)) if (incoming[key] !== undefined) clean[key] = incoming[key];
+        Object.assign(state, clean);
+      } else {
+        const mergeById = (current, extra) => { const map = new Map((current || []).map(item => [item.id, item])); for (const item of extra || []) if (item && item.id && !map.has(item.id)) map.set(item.id, item); return [...map.values()]; };
+        for (const key of ["library", "queue", "favorites", "history", "inProgress"]) state[key] = mergeById(state[key], incoming[key]);
+        state.playedEpisodeIds = [...new Set([...(state.playedEpisodeIds || []), ...(incoming.playedEpisodeIds || [])])];
+        state.diagnostics = [...(state.diagnostics || []), ...(incoming.diagnostics || [])].slice(-100);
+        if (!state.currentEpisode && incoming.currentEpisode) { state.currentEpisode = incoming.currentEpisode; state.currentTime = Number(incoming.currentTime) || 0; }
+      }
+      playedEpisodeIdSet.clear();
+      for (const id of state.playedEpisodeIds || []) playedEpisodeIdSet.add(id);
+      saveState(); renderLibrary(); renderQueue(); renderFavorites(); renderHistory(); renderProgress(); renderLatestEpisodes(); renderDiagnostics(); restorePlayer();
+      setText(elements.backupStatus, elements.replaceBackup.checked ? "Backup restored, replacing current data." : "Backup merged with current data. Existing items were retained and duplicates combined.");
+    }
+
+    function removePlayedFromQueue() {
+      const before = state.queue.length;
+      state.queue = state.queue.filter(episode => !episodeHasBeenPlayed(episode));
+      currentQueueIndex = state.currentEpisode ? state.queue.findIndex(item => item.id === state.currentEpisode.id) : -1;
+      saveState(); renderQueue(); setStatus(elements.playerStatus, "Removed " + (before - state.queue.length) + " played episodes from the queue.");
+    }
+
+    function markAllLatestPlayed() {
+      const list = [...latestEpisodePanel.episodes];
+      if (!list.length) return;
+      list.forEach(episode => { if (!episodeHasBeenPlayed(episode)) { playedEpisodeIdSet.add(episode.id); state.history.unshift({ ...persistableEpisode(episode), playedAt: new Date().toISOString() }); } });
+      state.playedEpisodeIds = [...playedEpisodeIdSet]; state.history = state.history.slice(0, MAX_HISTORY);
+      state.inProgress = (state.inProgress || []).filter(entry => !playedEpisodeIdSet.has(entry.episode.id));
+      saveState(); renderHistory(); renderProgress(); renderLatestEpisodes();
+      for (const panel of showPanels) if (panel.loaded) renderEpisodes(panel);
+    }
+
+    function persistSectionStates() {
+      document.querySelectorAll("main details[id]").forEach(section => { state.expandedSections[section.id] = section.open; });
+      saveState();
     }
 
     function restorePlayer() {
@@ -1685,9 +1918,13 @@
 
     elements.audio.addEventListener("timeupdate", () => {
       const now = Date.now();
+      const current = Number.isFinite(elements.audio.currentTime) ? elements.audio.currentTime : 0;
+      const duration = Number.isFinite(elements.audio.duration) ? elements.audio.duration : 0;
+      state.currentTime = current;
+      if (state.currentEpisode && duration > 0 && current / duration >= 0.9 && !episodeHasBeenPlayed(state.currentEpisode)) recordHistory(state.currentEpisode);
       if (now - lastSavedTime > 5000) {
-        state.currentTime = Number.isFinite(elements.audio.currentTime) ? elements.audio.currentTime : 0;
-        saveState();
+        if (state.currentEpisode && current > 0) updateProgress(state.currentEpisode, current, duration);
+        else saveState();
         lastSavedTime = now;
       }
     });
@@ -1697,26 +1934,60 @@
       }
     });
     elements.audio.addEventListener("play", () => {
-      if (state.currentEpisode) recordHistory(state.currentEpisode);
       setStatus(elements.playerStatus, "Playing: " + (state.currentEpisode ? state.currentEpisode.title : "podcast episode"));
     });
     elements.audio.addEventListener("pause", () => {
-      if (!elements.audio.ended && state.currentEpisode) setStatus(elements.playerStatus, "Paused: " + state.currentEpisode.title);
+      if (!elements.audio.ended && state.currentEpisode) {
+        setStatus(elements.playerStatus, "Paused: " + state.currentEpisode.title);
+        if (Number.isFinite(elements.audio.currentTime) && elements.audio.currentTime > 0) {
+          state.currentTime = elements.audio.currentTime;
+          updateProgress(state.currentEpisode, elements.audio.currentTime, elements.audio.duration);
+        } else saveState();
+      }
     });
-    elements.audio.addEventListener("ended", playNextInQueue);
+    elements.audio.addEventListener("ended", () => {
+      if (state.currentEpisode && !episodeHasBeenPlayed(state.currentEpisode)) recordHistory(state.currentEpisode);
+      playNextInQueue();
+    });
     elements.audio.addEventListener("error", () => {
       if (state.currentEpisode) setStatus(elements.playerStatus, "The audio file could not be played. The publisher may have removed it or the server may be unavailable.", true);
     });
     window.addEventListener("pagehide", () => {
-      if (!elements.audio.paused && Number.isFinite(elements.audio.currentTime)) state.currentTime = elements.audio.currentTime;
+      if (state.currentEpisode && Number.isFinite(elements.audio.currentTime)) {
+        state.currentTime = elements.audio.currentTime;
+        updateProgress(state.currentEpisode, elements.audio.currentTime, elements.audio.duration);
+      }
+      persistSectionStates();
       saveState();
     });
 
+    elements.libraryFilter.addEventListener("input", renderLibrary);
+    elements.latestFilter.addEventListener("input", renderLatestEpisodes);
+    elements.latestSort.addEventListener("change", renderLatestEpisodes);
+    elements.markAllLatestPlayed.addEventListener("click", markAllLatestPlayed);
+    elements.clearCompletedQueue.addEventListener("click", removePlayedFromQueue);
+    elements.exportOpml.addEventListener("click", exportOpml);
+    elements.importOpml.addEventListener("change", async () => { const file = elements.importOpml.files[0]; if (!file) return; try { await importOpmlFile(file); } catch (error) { setText(elements.opmlStatus, error.message || "OPML import failed."); } finally { elements.importOpml.value = ""; } });
+    elements.exportBackup.addEventListener("click", exportBackup);
+    elements.importBackup.addEventListener("change", async () => { const file = elements.importBackup.files[0]; if (!file) return; try { await importBackupFile(file); } catch (error) { setText(elements.backupStatus, error.message || "Backup import failed."); } finally { elements.importBackup.value = ""; } });
+    elements.clearDiagnostics.addEventListener("click", () => { state.diagnostics = []; saveState(); renderDiagnostics(); });
+    document.querySelectorAll("main details[id]").forEach(section => { section.addEventListener("toggle", persistSectionStates); });
+    document.addEventListener("keydown", event => {
+      if (event.target.matches("input, textarea, select, [contenteditable=true]")) return;
+      if (event.code === "Space" && state.currentEpisode) { event.preventDefault(); if (elements.audio.paused) elements.audio.play().catch(() => {}); else elements.audio.pause(); }
+      if (event.altKey && event.key === "ArrowRight") { event.preventDefault(); elements.audio.currentTime = Math.min(elements.audio.duration || Infinity, elements.audio.currentTime + 30); }
+      if (event.altKey && event.key === "ArrowLeft") { event.preventDefault(); elements.audio.currentTime = Math.max(0, elements.audio.currentTime - 15); }
+      if (event.altKey && event.key.toLowerCase() === "n") { event.preventDefault(); playNextInQueue(); }
+    });
+
+    document.querySelectorAll("main details[id]").forEach(section => { if (Object.prototype.hasOwnProperty.call(state.expandedSections, section.id)) section.open = Boolean(state.expandedSections[section.id]); });
     renderLibrary();
     renderLatestEpisodes();
     renderQueue();
     renderFavorites();
     renderHistory();
+    renderProgress();
+    renderDiagnostics();
     restorePlayer();
     placePlayerUnderEpisode();
   </script>
