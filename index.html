@@ -75,10 +75,7 @@
       <fieldset>
         <p id="queue-empty">Your queue is empty. Add episodes with the “Add to Queue” button.</p>
         <ol id="queue-list"></ol>
-        <table cellpadding="6" cellspacing="4" role="presentation"><tr>
-          <td><button type="button" id="clear-queue">Clear Queue</button></td>
-          <td><button type="button" id="play-next">Play Next in Queue</button></td>
-        </tr></table>
+        <p><button type="button" id="clear-queue">Clear Queue</button> <button type="button" id="play-next">Play Next in Queue</button></p>
       </fieldset>
     </details>
 
@@ -95,16 +92,8 @@
           <div id="player-interface">
             <fieldset>
               <legend>Playback controls</legend>
-              <table cellpadding="6" cellspacing="4" role="presentation">
-                <tr>
-                  <td><button type="button" id="previous-episode">Previous Episode</button></td>
-                  <td><button type="button" id="skip-back">Back 15 Seconds</button></td>
-                </tr>
-                <tr>
-                  <td><button type="button" id="skip-forward">Forward 30 Seconds</button></td>
-                  <td><button type="button" id="next-episode">Next Episode</button></td>
-                </tr>
-              </table>
+              <p><button type="button" id="previous-episode">Previous Episode</button> <button type="button" id="skip-back">Back 15 Seconds</button></p>
+              <p><button type="button" id="skip-forward">Forward 30 Seconds</button> <button type="button" id="next-episode">Next Episode</button></p>
             </fieldset>
             <fieldset>
               <legend>Playback speed</legend>
@@ -147,7 +136,6 @@
         <p><button type="button" id="clear-history">Clear Listening History</button></p>
       </fieldset>
     </details>
-  </main>
 
     <hr>
 
@@ -189,6 +177,7 @@
         <p><button type="button" id="clear-diagnostics">Clear Diagnostics</button></p>
       </fieldset>
     </details>
+  </main>
 
   <footer>
     <hr>
@@ -372,22 +361,9 @@
     function makeActionGroup(label, controls) {
       const group = makeElement("fieldset");
       group.append(makeElement("legend", label));
-      const table = document.createElement("table");
-      table.setAttribute("cellpadding", "6");
-      table.setAttribute("cellspacing", "4");
-      table.setAttribute("role", "presentation");
-      const body = document.createElement("tbody");
-      for (let index = 0; index < controls.length; index += 2) {
-        const row = document.createElement("tr");
-        for (const control of controls.slice(index, index + 2)) {
-          const cell = document.createElement("td");
-          cell.append(control);
-          row.append(cell);
-        }
-        body.append(row);
-      }
-      table.append(body);
-      group.append(table);
+      const container = makeElement("div");
+      controls.forEach(control => container.append(control));
+      group.append(container);
       return group;
     }
 
@@ -1539,8 +1515,18 @@
       entries.forEach(entry => {
         const item = makeElement("li");
         const title = makeElement("strong", entry.episode.title);
-        const pct = entry.duration > 0 ? Math.min(99, Math.floor(entry.currentTime / entry.duration * 100)) : 0;
-        item.append(title, makeElement("p", entry.episode.showTitle + " | " + pct + "% listened"));
+        const progressText = makeElement("p", entry.episode.showTitle);
+        const progress = makeElement("progress");
+        progress.max = 100;
+        progress.setAttribute("aria-label", "Listening progress for " + entry.episode.title);
+        if (entry.duration > 0) {
+          const pct = Math.min(99, Math.floor(entry.currentTime / entry.duration * 100));
+          progress.value = pct;
+          progressText.append(makeElement("span", " " + pct + "% listened"));
+        } else {
+          progressText.append(makeElement("span", " Listening progress unavailable"));
+        }
+        item.append(title, progressText, progress);
         const resume = makeElement("button", "Resume"); resume.type = "button"; resume.addEventListener("click", () => { playEpisode(entry.episode); elements.audio.addEventListener("loadedmetadata", function seekResume() { elements.audio.currentTime = Math.min(entry.currentTime, Math.max(0, elements.audio.duration - 1)); elements.audio.removeEventListener("loadedmetadata", seekResume); }, { once: true }); });
         const played = makeElement("button", "Mark Played"); played.type = "button"; played.addEventListener("click", () => markEpisodePlayed(entry.episode, true));
         item.append(makeActionGroup("In-progress actions", [resume, played]), document.createElement("hr"));
