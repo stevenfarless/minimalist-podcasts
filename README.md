@@ -58,7 +58,15 @@ OPML contains subscription addresses and titles. JSON backups contain the app's 
 
 ## Design
 
-The deliberately plain interface uses native HTML elements such as `details`, `fieldset`, `table`, and `audio`. There is no CSS. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file.
+The deliberately plain interface uses native HTML elements such as `details`, `summary`, `form`, `button`, `input`, `progress`, and `audio`. There is no CSS, framework, dependency, or build process. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file. Layout uses ordinary document flow rather than tables or a styling framework.
+
+The project favors browser-provided controls and straightforward JavaScript. Application logic is required for catalogue searches, feed retrieval, playback management, and local persistence; the browser handles the native interface wherever practical.
+
+## Browser compatibility
+
+The intended targets are current versions of Chrome, Firefox, Safari, Edge, and their mobile counterparts, plus reasonably recent releases. The project does not promise compatibility with Internet Explorer or obsolete browser engines. Older browsers may display the page while lacking support for particular features such as media playback, file handling, or modern network security.
+
+The app uses modern JavaScript and browser APIs. It is not designed around an ES5-only compatibility baseline. Kindle and other e-ink browsers are experimental targets, with functionality dependent on the device's browser, network support, and audio capabilities. No exhaustive cross-browser test suite has been completed.
 
 ## Limitations
 
