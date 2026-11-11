@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
   <title>Podcast Player</title>
-  <meta name="application-version" content="2.0.3">
+  <meta name="application-version" content="2.1.0">
 </head>
 <body>
   <header>
@@ -1963,7 +1963,7 @@
         const card = makeElement("article");
         card.append(makeElement("strong", episode.title));
         card.append(makeElement("p", episode.showTitle + " | " + formatDate(episode.date)));
-        const play = makeElement("button", episode.audioUrl ? "Play" : "No Audio File");
+        const play = makeElement("button", episode.audioUrl ? "Play" : "No Playable Media");
         play.type = "button";
         play.disabled = !episode.audioUrl;
         play.addEventListener("click", () => playEpisode(episode));
@@ -1984,7 +1984,7 @@
         const card = makeElement("article");
         card.append(makeElement("strong", episode.title));
         card.append(makeElement("p", episode.showTitle + " | Played " + formatDate(episode.playedAt)));
-        const play = makeElement("button", episode.audioUrl ? "Play Again" : "No Audio File");
+        const play = makeElement("button", episode.audioUrl ? "Play Again" : "No Playable Media");
         play.type = "button";
         play.disabled = !episode.audioUrl;
         play.addEventListener("click", () => playEpisode(episode));
