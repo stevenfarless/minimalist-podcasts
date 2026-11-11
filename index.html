@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
   <title>Podcast Player</title>
-  <meta name="application-version" content="2.0.0">
+  <meta name="application-version" content="2.0.1">
 </head>
 <body>
   <header>
@@ -651,6 +651,17 @@
       return likelyAudio ? likelyAudio.url : "";
     }
 
+    function episodeDescriptionMarkup(entry) {
+      const preferred = firstByLocalName(entry, ["encoded", "description", "summary"]);
+      if (preferred) return preferred.textContent || "";
+      const content = allByLocalName(entry, "content").find(node => {
+        if (node.getAttribute("src") || String(node.getAttribute("medium") || "").toLowerCase() === "audio") return false;
+        const type = String(node.getAttribute("type") || "").toLowerCase();
+        return (!type || type.startsWith("text/") || type === "xhtml") && String(node.textContent || "").trim();
+      });
+      return content ? content.textContent || "" : "";
+    }
+
     function parseFeed(documentXml, show, source) {
       const root = documentXml.documentElement;
       const channel = allByLocalName(documentXml, "channel")[0] || root;
@@ -668,9 +679,13 @@
         const date = tagText(entry, ["pubDate", "published", "updated", "date"]);
         const guid = tagText(entry, ["guid", "id"]);
         const audioUrl = extractEpisodeAudio(entry, show.feedUrl);
-        const enclosure = firstByLocalName(entry, ["enclosure", "content"]);
+        const enclosureNodes = allByLocalName(entry, "enclosure").concat(allByLocalName(entry, "content"));
+        const enclosure = enclosureNodes.find(node => {
+          const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || "", show.feedUrl);
+          return url && url === audioUrl;
+        }) || null;
         const duration = tagText(entry, ["duration"]);
-        const descriptionMarkup = tagText(entry, ["encoded", "description", "summary", "content"]);
+        const descriptionMarkup = episodeDescriptionMarkup(entry);
         const linkNodes = allByLocalName(entry, "link");
         const pageLink = linkNodes.find(node => {
           const rel = String(node.getAttribute("rel") || "").toLowerCase();
