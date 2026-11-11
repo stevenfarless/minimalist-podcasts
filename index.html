@@ -285,21 +285,90 @@
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return emptyState();
         const saved = JSON.parse(raw);
-        const initial = emptyState();
+        if (!saved || typeof saved !== "object" || Array.isArray(saved)) return emptyState();
+
+        const isRecord = value => value && typeof value === "object" && !Array.isArray(value);
+        const uniqueById = items => {
+          const seen = new Set();
+          return items.filter(item => {
+            if (!item.id || seen.has(item.id)) return false;
+            seen.add(item.id);
+            return true;
+          });
+        };
+        const normalizeStoredEpisodes = (items, limit) => uniqueById(
+          (Array.isArray(items) ? items : [])
+            .filter(isRecord)
+            .map(item => normalizeEpisode(item))
+            .filter(item => item.id)
+        ).slice(0, limit);
+        const library = [];
+        const feedUrls = new Set();
+        for (const item of (Array.isArray(saved.library) ? saved.library : []).filter(isRecord)) {
+          const show = normalizeShow(item);
+          if ((!show.feedUrl && !show.appleId) || (show.feedUrl && feedUrls.has(show.feedUrl)) || library.some(existing => existing.id === show.id)) continue;
+          library.push(show);
+          if (show.feedUrl) feedUrls.add(show.feedUrl);
+          if (library.length >= 1000) break;
+        }
+        const queue = normalizeStoredEpisodes(saved.queue, 1000).filter(item => item.audioUrl);
+        const favorites = normalizeStoredEpisodes(saved.favorites, 1000);
+        const history = normalizeStoredEpisodes(saved.history, MAX_HISTORY).map((episode, index) => ({
+          ...episode,
+          playedAt: String(saved.history.filter(isRecord)[index] && saved.history.filter(isRecord)[index].playedAt || "")
+        }));
+        const playedIds = Array.isArray(saved.playedEpisodeIds)
+          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(0, 5000)
+          : history.map(item => item.id);
+        const inProgress = (Array.isArray(saved.inProgress) ? saved.inProgress : [])
+          .filter(item => isRecord(item) && isRecord(item.episode))
+          .map(item => {
+            const currentTime = Number(item.currentTime), duration = Number(item.duration);
+            if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) return null;
+            const episode = normalizeEpisode(item.episode);
+            if (!episode.id || !episode.audioUrl) return null;
+            return {
+              episode,
+              currentTime: duration > 0 ? Math.min(currentTime, duration) : currentTime,
+              duration,
+              updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : ""
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
+          .slice(0, 200);
+        const diagnostics = (Array.isArray(saved.diagnostics) ? saved.diagnostics : [])
+          .filter(isRecord)
+          .map(item => ({
+            feedUrl: safeHttpUrl(item.feedUrl || ""),
+            message: String(item.message || "Unknown event").slice(0, 1000),
+            kind: String(item.kind || "event").slice(0, 100),
+            at: typeof item.at === "string" ? item.at : ""
+          }))
+          .slice(-100);
+        const expandedSections = {};
+        if (isRecord(saved.expandedSections)) {
+          for (const [key, value] of Object.entries(saved.expandedSections)) {
+            if (/^[a-z][a-z0-9-]{0,80}$/i.test(key) && typeof value === "boolean") expandedSections[key] = value;
+          }
+        }
+        const currentEpisode = isRecord(saved.currentEpisode) ? normalizeEpisode(saved.currentEpisode) : null;
+        const validCurrentEpisode = currentEpisode && currentEpisode.audioUrl ? currentEpisode : null;
+        const currentTime = Number(saved.currentTime);
+        const rate = Number(saved.playbackRate);
         return {
-          library: Array.isArray(saved.library) ? saved.library : initial.library,
-          queue: Array.isArray(saved.queue) ? saved.queue : initial.queue,
-          favorites: Array.isArray(saved.favorites) ? saved.favorites : initial.favorites,
-          history: Array.isArray(saved.history) ? saved.history : initial.history,
-          playedEpisodeIds: Array.isArray(saved.playedEpisodeIds)
-            ? [...new Set(saved.playedEpisodeIds.filter(id => typeof id === "string" && id))]
-            : (Array.isArray(saved.history) ? [...new Set(saved.history.map(item => item && item.id).filter(id => typeof id === "string" && id))] : initial.playedEpisodeIds),
-          inProgress: Array.isArray(saved.inProgress) ? saved.inProgress.filter(item => item && item.episode && typeof item.episode.id === "string") : initial.inProgress,
-          diagnostics: Array.isArray(saved.diagnostics) ? saved.diagnostics.slice(-100) : initial.diagnostics,
-          expandedSections: saved.expandedSections && typeof saved.expandedSections === "object" ? saved.expandedSections : initial.expandedSections,
-          currentEpisode: saved.currentEpisode && typeof saved.currentEpisode === "object" ? saved.currentEpisode : null,
-          currentTime: Number.isFinite(Number(saved.currentTime)) && Number(saved.currentTime) >= 0 ? Number(saved.currentTime) : 0,
-          playbackRate: Number.isFinite(Number(saved.playbackRate)) ? Number(saved.playbackRate) : 1
+          library,
+          queue,
+          favorites,
+          history,
+          playedEpisodeIds: [...new Set(playedIds)],
+          inProgress,
+          diagnostics,
+          expandedSections,
+          currentEpisode: validCurrentEpisode,
+          currentTime: validCurrentEpisode && Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0,
+          playbackRate: [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].includes(rate) ? rate : 1,
+          schemaVersion: 2
         };
       } catch (error) {
         console.warn("Could not read saved podcast data:", error);
@@ -345,6 +414,27 @@
       if (feedCache.has(feedUrl)) feedCache.delete(feedUrl);
       feedCache.set(feedUrl, result);
       if (feedCache.size > 20) feedCache.delete(feedCache.keys().next().value);
+    }
+
+    function isCurrentPlaybackSource() {
+      if (!state.currentEpisode || !state.currentEpisode.audioUrl) return false;
+      const expected = safeHttpUrl(state.currentEpisode.audioUrl);
+      const actual = safeHttpUrl(elements.audio.currentSrc || elements.audio.src);
+      return Boolean(expected && actual && expected === actual);
+    }
+
+    function readFileText(file) {
+      if (file && typeof file.text === "function") return file.text();
+      return new Promise((resolve, reject) => {
+        if (typeof FileReader === "undefined") {
+          reject(new Error("This browser cannot read the selected file."));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("Could not read the selected file."));
+        reader.readAsText(file);
+      });
     }
 
     function saveState() {
@@ -1219,7 +1309,9 @@
           savedShow.feedUrl = feedUrl;
           saveState();
         }
-        const cached = !settings.force && feedCache.get(feedUrl);
+        const cachedResult = !settings.force && feedCache.get(feedUrl);
+        const cachedAt = latestFeedCacheTimestamps.get(feedUrl) || 0;
+        const cached = cachedResult && Date.now() - cachedAt < LATEST_CACHE_TTL_MS ? cachedResult : null;
         let result;
         if (cached) {
           result = cached;
@@ -1737,10 +1829,17 @@
                 parsed = parseFeed(fetched.documentXml, { ...show, feedUrl }, fetched.source);
                 cacheFeed(feedUrl, parsed); latestFeedCacheTimestamps.set(feedUrl, Date.now());
               }
-              if (!state.library.some(saved => saved.id === show.id)) continue;
+              const currentShow = state.library.find(saved => saved.id === show.id);
+              if (!currentShow || currentShow.feedUrl !== show.feedUrl) continue;
+              if (!currentShow.feedUrl) {
+                currentShow.feedUrl = feedUrl;
+                saveState();
+              }
               latestEpisodesByShow.set(show.id, { show: parsed.show, episodes: parsed.episodes, refreshedAt: Date.now() });
               updated += 1; renderLatestEpisodes();
             } catch (error) {
+              const currentShow = state.library.find(saved => saved.id === show.id);
+              if (!currentShow || currentShow.feedUrl !== show.feedUrl) continue;
               const message = error && error.message ? error.message : "feed could not be read";
               failures.push(show.title + ": " + message);
               recordDiagnostic(show.feedUrl, message, "feed refresh failed");
@@ -1878,8 +1977,8 @@
     }
 
     async function importOpmlFile(file) {
-      const xml = new DOMParser().parseFromString(await file.text(), "application/xml");
-      if (xml.querySelector("parsererror")) throw new Error("The selected file is not valid OPML/XML.");
+      const xml = new DOMParser().parseFromString(await readFileText(file), "application/xml");
+      if (xml.querySelector("parsererror") || !xml.documentElement || String(xml.documentElement.localName || xml.documentElement.nodeName).toLowerCase() !== "opml") throw new Error("The selected file is not valid OPML/XML.");
       const outlines = [...xml.getElementsByTagName("outline")];
       const imported = outlines.map(node => ({ title: node.getAttribute("title") || node.getAttribute("text") || "Imported Podcast", feedUrl: node.getAttribute("xmlUrl") || node.getAttribute("url") || "", appleUrl: node.getAttribute("htmlUrl") || "", source: "OPML import" })).filter(show => safeHttpUrl(show.feedUrl));
       if (!imported.length) throw new Error("No valid podcast RSS addresses were found in that OPML file.");
@@ -1944,7 +2043,7 @@
     }
 
     async function importBackupFile(file) {
-      const parsed = JSON.parse(await file.text());
+      const parsed = JSON.parse(await readFileText(file));
       const raw = parsed && parsed.data ? parsed.data : parsed;
       const incoming = validateBackupData(raw);
       if (elements.replaceBackup.checked) {
@@ -2088,6 +2187,7 @@
     });
 
     elements.audio.addEventListener("timeupdate", () => {
+      if (!isCurrentPlaybackSource()) return;
       const now = Date.now();
       const current = Number.isFinite(elements.audio.currentTime) ? elements.audio.currentTime : 0;
       const duration = Number.isFinite(elements.audio.duration) ? elements.audio.duration : 0;
@@ -2100,19 +2200,20 @@
       }
     });
     elements.audio.addEventListener("loadedmetadata", () => {
-      if (state.currentEpisode && elements.audio.src === state.currentEpisode.audioUrl) {
+      if (isCurrentPlaybackSource()) {
         setStatus(elements.playerStatus, "Ready: " + state.currentEpisode.title);
       }
     });
     elements.audio.addEventListener("play", () => {
-      setStatus(elements.playerStatus, "Playing: " + (state.currentEpisode ? state.currentEpisode.title : "podcast episode"));
+      if (!isCurrentPlaybackSource()) return;
+      setStatus(elements.playerStatus, "Playing: " + state.currentEpisode.title);
     });
     elements.audio.addEventListener("pause", () => {
       if (suppressNextPauseEvent) {
         suppressNextPauseEvent = false;
         return;
       }
-      if (!elements.audio.ended && state.currentEpisode) {
+      if (!elements.audio.ended && isCurrentPlaybackSource()) {
         setStatus(elements.playerStatus, "Paused: " + state.currentEpisode.title);
         if (Number.isFinite(elements.audio.currentTime) && elements.audio.currentTime > 0) {
           state.currentTime = elements.audio.currentTime;
@@ -2121,14 +2222,15 @@
       }
     });
     elements.audio.addEventListener("ended", () => {
-      if (state.currentEpisode && !episodeHasBeenPlayed(state.currentEpisode)) recordHistory(state.currentEpisode);
+      if (!isCurrentPlaybackSource()) return;
+      if (!episodeHasBeenPlayed(state.currentEpisode)) recordHistory(state.currentEpisode);
       playNextInQueue();
     });
     elements.audio.addEventListener("error", () => {
-      if (state.currentEpisode) setStatus(elements.playerStatus, "The audio file could not be played. The publisher may have removed it or the server may be unavailable.", true);
+      if (isCurrentPlaybackSource()) setStatus(elements.playerStatus, "The audio file could not be played. The publisher may have removed it or the server may be unavailable.", true);
     });
     window.addEventListener("pagehide", () => {
-      if (state.currentEpisode && Number.isFinite(elements.audio.currentTime)) {
+      if (isCurrentPlaybackSource() && Number.isFinite(elements.audio.currentTime)) {
         state.currentTime = elements.audio.currentTime;
         updateProgress(state.currentEpisode, elements.audio.currentTime, elements.audio.duration);
       }
