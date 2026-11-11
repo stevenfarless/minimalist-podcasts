@@ -486,3 +486,51 @@ test("retries a transient feed failure and succeeds when the publisher recovers"
   expect(directAttempts).toBe(2);
   expect(proxyAttempts).toBe(1);
 });
+
+
+test("reorders and removes episodes in the playback queue", async ({ page }) => {
+  await addFeed(page, RSS_URL, RSS);
+  await page.locator("#library-list").getByText("Episode One", { exact: true }).click();
+  await page.getByRole("button", { name: "Add to Queue" }).first().click();
+  await page.locator("#library-list").getByText("Episode Two", { exact: true }).click();
+  await page.getByRole("button", { name: "Add to Queue" }).last().click();
+
+  await openSection(page, "queue-section");
+  let items = page.locator("#queue-list > li");
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText("Episode One");
+  await expect(items.nth(1)).toContainText("Episode Two");
+  await items.nth(1).getByRole("button", { name: "Move Up" }).click();
+  items = page.locator("#queue-list > li");
+  await expect(items.nth(0)).toContainText("Episode Two");
+  await expect(items.nth(1)).toContainText("Episode One");
+  await items.nth(0).getByRole("button", { name: "Remove" }).click();
+  items = page.locator("#queue-list > li");
+  await expect(items).toHaveCount(1);
+  await expect(items.first()).toContainText("Episode One");
+});
+
+test("falls back to the public CORS proxy when a publisher blocks direct feed access", async ({ page }) => {
+  await page.route(RSS_URL, route => route.fulfill({ status: 403, body: "Direct access denied" }));
+  await page.route("https://proxy.cors.dev/**", route => route.fulfill({
+    status: 200,
+    contentType: "application/xml",
+    headers: { "access-control-allow-origin": "*" },
+    body: RSS
+  }));
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(RSS_URL);
+  await page.getByRole("button", { name: "Add Feed" }).click();
+  await expect(page.locator("#library-list")).toContainText("Regression Test Podcast");
+});
+
+test("reports browser storage quota failures without breaking the current session", async ({ page }) => {
+  await page.evaluate(() => {
+    Storage.prototype.setItem = function () {
+      throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+    };
+  });
+  await addFeed(page, RSS_URL, RSS);
+  await expect(page.locator("#player-status")).toContainText("storage is unavailable or full");
+  await expect(page.locator("#library-list")).toContainText("Regression Test Podcast");
+});
