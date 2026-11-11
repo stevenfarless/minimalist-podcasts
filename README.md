@@ -97,7 +97,7 @@ npx playwright install chromium
 npm test
 ```
 
-The Playwright suite launches the app in Chromium and tests malformed local storage recovery, RSS and Atom feed loading, queue and episode state changes, stale playback events, and invalid OPML/backup handling. GitHub Actions runs the same suite on pushes and pull requests. These tests provide repeatable Chromium coverage; they do not establish compatibility with every browser, podcast host, or audio codec.
+The Playwright suite launches the app in Chromium, Firefox, and WebKit and tests malformed local storage recovery, RSS and Atom feed loading, queue and episode state changes, stale playback events, and invalid OPML/backup handling. GitHub Actions runs the same suite on pushes and pull requests. These tests provide repeatable Chromium coverage; they do not establish compatibility with every browser, podcast host, or audio codec.
 
 ## License
 
