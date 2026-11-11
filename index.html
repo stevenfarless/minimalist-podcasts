@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
   <title>Podcast Player</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2712%27 fill=%27%23222%27/%3E%3Cpath d=%27M18 36v-7a14 14 0 0 1 28 0v7M18 33v14h7V33zm21 0v14h7V33z%27 fill=%27none%27 stroke=%27white%27 stroke-width=%274%27/%3E%3C/svg%3E">
-  <meta name="application-version" content="2.1.0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2712%27/%3E%3Ctext x=%2732%27 y=%2746%27 text-anchor=%27middle%27 font-size=%2740%27 fill=%27white%27%3EP%3C/text%3E%3C/svg%3E">
+  <meta name="application-version" content="2.2.0">
 </head>
 <body>
   <header>
@@ -57,21 +57,7 @@
 
     <hr>
 
-    <details id="latest-section">
-      <summary>Latest Episodes</summary>
-      <div>
-        <p id="latest-status" role="status" aria-live="polite">Open this section to check your subscriptions for new episodes.</p>
-        <p><button type="button" id="refresh-latest">Refresh Latest Episodes</button> <button type="button" id="mark-all-latest-played">Mark All Listed Episodes Played</button></p>
-        <p><label for="latest-filter">Filter latest episodes</label> <input id="latest-filter" type="search" placeholder="Filter episodes"></p>
-        <p><label for="latest-sort">Sort episodes</label> <select id="latest-sort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="show">Podcast title</option><option value="episode">Episode title</option></select></p>
-        <p id="latest-empty">Subscribe to podcasts to see their latest unplayed episodes here.</p>
-        <ol id="latest-list"></ol>
-      </div>
-    </details>
-
-    <hr>
-
-    <details id="queue-section">
+<details id="queue-section">
       <summary>Playback Queue</summary>
       <div>
         <p id="queue-empty">Your queue is empty. Add episodes with the “Add to Queue” button.</p>
@@ -183,7 +169,7 @@
 
   <footer>
     <hr>
-    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted search service. Episode lists and Latest Episodes come from subscribed shows’ public RSS or Atom feeds. Listening status, subscriptions, queues, and backups are stored in this browser.</p>
+    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted search service. Episode lists come from the public RSS or Atom feed of the show you open. Library dates reflect the last successful check; opening the library does not refresh feeds. Listening status, subscriptions, queues, and backups are stored in this browser.</p>
   </footer>
 
   <script>
@@ -215,11 +201,6 @@
       searchSection: document.getElementById("search-section"),
       rssSection: document.getElementById("rss-section"),
       librarySection: document.getElementById("library-section"),
-      latestSection: document.getElementById("latest-section"),
-      latestStatus: document.getElementById("latest-status"),
-      refreshLatest: document.getElementById("refresh-latest"),
-      latestEmpty: document.getElementById("latest-empty"),
-      latestList: document.getElementById("latest-list"),
       queueSection: document.getElementById("queue-section"),
       nowPlayingSection: document.getElementById("now-playing-section"),
       favoritesSection: document.getElementById("favorites-section"),
@@ -251,9 +232,6 @@
       historyList: document.getElementById("history-list"),
       clearHistory: document.getElementById("clear-history"),
       libraryFilter: document.getElementById("library-filter"),
-      latestFilter: document.getElementById("latest-filter"),
-      latestSort: document.getElementById("latest-sort"),
-      markAllLatestPlayed: document.getElementById("mark-all-latest-played"),
       progressSection: document.getElementById("progress-section"),
       progressList: document.getElementById("progress-list"),
       progressEmpty: document.getElementById("progress-empty"),
@@ -393,21 +371,9 @@
     const state = readSavedState();
     let lastSerializedState = null;
     const feedCache = new Map();
-    const latestEpisodesByShow = new Map();
     const latestFeedCacheTimestamps = new Map();
     const playedEpisodeIdSet = new Set(state.playedEpisodeIds);
     const LATEST_CACHE_TTL_MS = 10 * 60 * 1000;
-    let latestRefreshPromise = null;
-    const latestEpisodePanel = {
-      filter: null,
-      list: elements.latestList,
-      episodes: [],
-      expandedEpisodes: new Set(),
-      disclosureGroup: "latest-episodes",
-      includeShowTitle: true,
-      emptyMessage: "There are no unplayed episodes in your subscriptions. You're all caught up.",
-      loaded: false
-    };
     let currentQueueIndex = -1;
     let playbackGeneration = 0;
     const libraryPanels = new Map();
@@ -545,6 +511,8 @@
         feedUrl,
         artwork,
         appleUrl,
+        latestEpisodeDate: Number.isFinite(Date.parse(raw.latestEpisodeDate)) ? new Date(raw.latestEpisodeDate).toISOString() : "",
+        feedCheckedAt: Number(raw.feedCheckedAt) > 0 ? Number(raw.feedCheckedAt) : 0,
         trackCount: Number(raw.trackCount) || 0,
         description: String(raw.description || ""),
         sources
@@ -589,9 +557,7 @@
       image.loading = "lazy";
       image.referrerPolicy = "no-referrer";
       image.addEventListener("load", () => {
-        if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-          image.height = Math.max(1, Math.round(image.width * image.naturalHeight / image.naturalWidth));
-        }
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) image.height = Math.max(1, Math.round(image.width * image.naturalHeight / image.naturalWidth));
       }, { once: true });
       image.src = safeUrl;
       return image;
@@ -1172,11 +1138,10 @@
         state.library.push(normalized);
       }
       saveState();
-      latestEpisodesByShow.delete(normalized.id);
+      
       renderLibrary();
-      renderLatestEpisodes();
+      
       elements.librarySection.open = true;
-      if (elements.latestSection.open) refreshLatestEpisodes(false);
     }
 
     function unsubscribeShow(showId) {
@@ -1187,10 +1152,10 @@
         libraryPanels.delete(showId);
       }
       state.library = state.library.filter(show => show.id !== showId);
-      latestEpisodesByShow.delete(showId);
+      
       saveState();
       renderLibrary();
-      renderLatestEpisodes();
+      
     }
 
     function focusSearchPanel(panel) {
@@ -1280,7 +1245,13 @@
       const card = makeElement("article");
       const image = makeImage(normalized.artwork, normalized.title + " artwork", inLibrary ? 48 : 80);
       if (image) card.append(image, document.createElement("br"));
-      card.append(makeElement("h3", normalized.title));
+      const heading = makeElement("h2", normalized.title);
+      if (inLibrary) {
+        const latestLabel = makeElement("small", libraryLatestText(normalized));
+        latestLabel.dataset.latestShowId = normalized.id;
+        heading.append(document.createTextNode(" — "), latestLabel);
+      }
+      card.append(heading);
       if (normalized.artist) card.append(makeElement("p", "By " + normalized.artist));
       if (!inLibrary && normalized.sources && normalized.sources.length) {
         card.append(makeElement("p", "Found via: " + normalized.sources.join(" + ")));
@@ -1371,6 +1342,27 @@
       placePlayerUnderEpisode();
     }
 
+    function libraryLatestText(show) {
+      if (!show.feedCheckedAt) return "Latest: Not checked";
+      return show.latestEpisodeDate ? "Latest: " + formatDate(show.latestEpisodeDate) : "Latest: Date unavailable";
+    }
+
+    function rememberLatestEpisode(show, episodes, checkedAt) {
+      const saved = state.library.find(item => item.id === show.id || (show.feedUrl && item.feedUrl === show.feedUrl));
+      if (!saved) return;
+      let newest = 0;
+      for (const episode of episodes) {
+        const time = Date.parse(episode.date);
+        if (Number.isFinite(time) && time > newest) newest = time;
+      }
+      saved.latestEpisodeDate = newest ? new Date(newest).toISOString() : "";
+      saved.feedCheckedAt = checkedAt;
+      saveState();
+      elements.libraryList.querySelectorAll("[data-latest-show-id]").forEach(label => {
+        if (label.dataset.latestShowId === saved.id) label.textContent = libraryLatestText(saved);
+      });
+    }
+
     function renderLibrary() {
       const activeIds = new Set(state.library.map(show => show.id));
       for (const [showId, panel] of libraryPanels) {
@@ -1432,12 +1424,8 @@
         }
         panel.show = result.show;
         panel.episodes = result.episodes;
-        latestEpisodesByShow.set(panel.show.id, {
-          show: panel.show,
-          episodes: panel.episodes,
-          refreshedAt: latestFeedCacheTimestamps.get(feedUrl) || Date.now()
-        });
-        renderLatestEpisodes();
+        rememberLatestEpisode(panel.show, panel.episodes, latestFeedCacheTimestamps.get(feedUrl) || Date.now());
+        
         panel.loaded = true;
         renderShowDetails(panel.show, "", panel.details);
         renderEpisodes(panel);
@@ -1464,6 +1452,8 @@
       if (show.feedUrl) {
         target.append(makeExternalLink(show.feedUrl, "Open RSS feed"));
       }
+      const saved = state.library.find(item => item.id === show.id || (show.feedUrl && item.feedUrl === show.feedUrl));
+      if (saved && saved.feedCheckedAt) target.append(makeElement("p", "Last checked: " + new Date(saved.feedCheckedAt).toLocaleString()));
       if (message) target.append(makeElement("p", message));
     }
 
@@ -1817,7 +1807,7 @@
         state.history = state.history.filter(item => item.id !== normalized.id);
       }
       saveState();
-      renderHistory(); renderProgress(); renderLatestEpisodes(); renderNowPlaying();
+      renderHistory(); renderProgress();  renderNowPlaying();
       for (const panel of showPanels) if (panel.loaded) renderEpisodes(panel);
     }
 
@@ -1878,114 +1868,7 @@
       return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
     }
 
-    function renderLatestEpisodes() {
-      const subscribedIds = new Set(state.library.map(show => show.id));
-      const episodes = [];
-      for (const [showId, feedData] of latestEpisodesByShow) {
-        if (!subscribedIds.has(showId)) continue;
-        for (const episode of feedData.episodes) {
-          if (!episodeHasBeenPlayed(episode)) episodes.push(episode);
-        }
-      }
-      const sortMode = elements.latestSort.value;
-      episodes.sort((a, b) => {
-        const aTime = episodeReleaseTime(a), bTime = episodeReleaseTime(b);
-        if (sortMode === "oldest" && aTime !== bTime) return aTime - bTime;
-        if (sortMode === "show") return a.showTitle.localeCompare(b.showTitle) || bTime - aTime;
-        if (sortMode === "episode") return a.title.localeCompare(b.title);
-        if (aTime !== bTime) return bTime - aTime;
-        return a.showTitle.localeCompare(b.showTitle) || a.title.localeCompare(b.title);
-      });
-      const latestQuery = elements.latestFilter.value.trim().toLowerCase();
-      const filteredEpisodes = latestQuery ? episodes.filter(ep => (ep.title + " " + ep.showTitle + " " + ep.description).toLowerCase().includes(latestQuery)) : episodes;
-      latestEpisodePanel.episodes = filteredEpisodes;
-      const loadedSubscriptionCount = state.library.filter(show => latestEpisodesByShow.has(show.id)).length;
-      if (!state.library.length) {
-        latestEpisodePanel.emptyMessage = "Subscribe to podcasts to see their latest unplayed episodes here.";
-      } else if (loadedSubscriptionCount < state.library.length) {
-        latestEpisodePanel.emptyMessage = "Checking your subscriptions for episodes. Use Refresh Latest Episodes to retry feeds that could not be loaded.";
-      } else {
-        latestEpisodePanel.emptyMessage = "You're caught up. No unplayed episodes were found in the loaded subscription feeds.";
-      }
-      elements.latestEmpty.textContent = latestEpisodePanel.emptyMessage;
-      const availableIds = new Set(filteredEpisodes.map(episode => episode.id));
-      for (const expandedId of latestEpisodePanel.expandedEpisodes) {
-        if (!availableIds.has(expandedId)) latestEpisodePanel.expandedEpisodes.delete(expandedId);
-      }
-      elements.latestEmpty.hidden = filteredEpisodes.length > 0;
-      renderEpisodes(latestEpisodePanel);
-    }
 
-    async function refreshLatestEpisodes(force) {
-      if (latestRefreshPromise) return latestRefreshPromise;
-      latestRefreshPromise = (async () => {
-        const subscribedShows = [...state.library];
-        if (!subscribedShows.length) {
-          latestEpisodesByShow.clear();
-          renderLatestEpisodes();
-          setStatus(elements.latestStatus, "Subscribe to at least one podcast to check for new episodes.");
-          return;
-        }
-
-        renderLatestEpisodes();
-        let updated = 0;
-        const failures = [];
-        let cursor = 0;
-        async function refreshWorker() {
-          while (cursor < subscribedShows.length) {
-            const index = cursor++;
-            const show = subscribedShows[index];
-            const existing = latestEpisodesByShow.get(show.id);
-            const freshEnough = existing && Date.now() - existing.refreshedAt < LATEST_CACHE_TTL_MS;
-            if (!force && freshEnough) { updated += 1; continue; }
-            setStatus(elements.latestStatus, "Refreshing feeds with up to three simultaneous requests. " + (index + 1) + " of " + subscribedShows.length + ": " + show.title);
-            try {
-              const feedUrl = await retryTransient(() => lookupAppleFeed(show), 2);
-              if (!feedUrl) throw new Error("No public RSS feed address was found.");
-              const cachedFeed = feedCache.get(feedUrl);
-              const cacheTime = latestFeedCacheTimestamps.get(feedUrl) || 0;
-              let parsed;
-              if (!force && cachedFeed && Date.now() - cacheTime < LATEST_CACHE_TTL_MS) parsed = cachedFeed;
-              else {
-                const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 3);
-                parsed = parseFeed(fetched.documentXml, { ...show, feedUrl }, fetched.source, fetched.truncated);
-                cacheFeed(feedUrl, parsed); latestFeedCacheTimestamps.set(feedUrl, Date.now());
-              }
-              const currentShow = state.library.find(saved => saved.id === show.id);
-              if (!currentShow || currentShow.feedUrl !== show.feedUrl) continue;
-              if (!currentShow.feedUrl) {
-                currentShow.feedUrl = feedUrl;
-                saveState();
-              }
-              latestEpisodesByShow.set(show.id, { show: parsed.show, episodes: parsed.episodes, refreshedAt: Date.now() });
-              updated += 1; renderLatestEpisodes();
-            } catch (error) {
-              const currentShow = state.library.find(saved => saved.id === show.id);
-              if (!currentShow || currentShow.feedUrl !== show.feedUrl) continue;
-              const message = error && error.message ? error.message : "feed could not be read";
-              failures.push(show.title + ": " + message);
-              recordDiagnostic(show.feedUrl, message, "feed refresh failed");
-              if (existing) existing.lastError = message;
-            }
-          }
-        }
-        await Promise.all(Array.from({ length: Math.min(3, subscribedShows.length) }, () => refreshWorker()));
-        renderLatestEpisodes();
-        const unplayedCount = latestEpisodePanel.episodes.length;
-        if (failures.length) {
-          setStatus(elements.latestStatus, "Checked " + updated + " of " + subscribedShows.length + " subscriptions. " +
-            unplayedCount + " unplayed episodes are available. Some feeds could not be refreshed: " + failures.join("; "), true);
-        } else {
-          setStatus(elements.latestStatus, "Checked " + subscribedShows.length + " subscriptions. " +
-            unplayedCount + " unplayed episodes, sorted newest first.");
-        }
-      })();
-      try {
-        await latestRefreshPromise;
-      } finally {
-        latestRefreshPromise = null;
-      }
-    }
 
     function renderFavorites() {
       elements.favoritesList.replaceChildren();
@@ -2109,7 +1992,7 @@
         const show = normalizeShow(raw);
         if (!state.library.some(item => item.feedUrl === show.feedUrl || item.id === show.id)) { state.library.push(show); added += 1; }
       }
-      saveState(); renderLibrary(); renderLatestEpisodes(); elements.librarySection.open = true;
+      saveState(); renderLibrary();  elements.librarySection.open = true;
       setText(elements.opmlStatus, "Imported " + added + " new subscriptions. " + (imported.length - added) + " duplicates were skipped.");
     }
 
@@ -2176,7 +2059,7 @@
       const raw = parsed && parsed.data ? parsed.data : parsed;
       const incoming = validateBackupData(raw);
       if (elements.replaceBackup.checked) {
-        latestEpisodesByShow.clear(); feedCache.clear(); latestFeedCacheTimestamps.clear();
+        feedCache.clear(); latestFeedCacheTimestamps.clear();
         for (const panel of libraryPanels.values()) {
           panel.loadToken += 1;
           showPanels.delete(panel);
@@ -2222,7 +2105,7 @@
       }
       playedEpisodeIdSet.clear();
       for (const id of state.playedEpisodeIds || []) playedEpisodeIdSet.add(id);
-      saveState(); renderLibrary(); renderQueue(); renderFavorites(); renderHistory(); renderProgress(); renderLatestEpisodes(); renderDiagnostics(); restorePlayer();
+      saveState(); renderLibrary(); renderQueue(); renderFavorites(); renderHistory(); renderProgress();  renderDiagnostics(); restorePlayer();
       setText(elements.backupStatus, elements.replaceBackup.checked ? "Backup restored, replacing current data." : "Backup merged with current data. Existing items were retained and duplicates combined.");
     }
 
@@ -2233,15 +2116,6 @@
       saveState(); renderQueue(); setStatus(elements.playerStatus, "Removed " + (before - state.queue.length) + " played episodes from the queue.");
     }
 
-    function markAllLatestPlayed() {
-      const list = [...latestEpisodePanel.episodes];
-      if (!list.length) return;
-      list.forEach(episode => { if (!episodeHasBeenPlayed(episode)) { playedEpisodeIdSet.add(episode.id); state.history.unshift({ ...persistableEpisode(episode), playedAt: new Date().toISOString() }); } });
-      state.playedEpisodeIds = [...playedEpisodeIdSet]; state.history = state.history.slice(0, MAX_HISTORY);
-      state.inProgress = (state.inProgress || []).filter(entry => !playedEpisodeIdSet.has(entry.episode.id));
-      saveState(); renderHistory(); renderProgress(); renderLatestEpisodes();
-      for (const panel of showPanels) if (panel.loaded) renderEpisodes(panel);
-    }
 
     function persistSectionStates() {
       document.querySelectorAll("main details[id]").forEach(section => { state.expandedSections[section.id] = section.open; });
@@ -2268,7 +2142,6 @@
           if (Number.isFinite(targetMedia.duration) && targetMedia.duration > 0 && resumeAt > 0 && resumeAt < targetMedia.duration) targetMedia.currentTime = resumeAt;
         };
         targetMedia.addEventListener("loadedmetadata", restorePosition);
-        // Restore the controls without requesting media until the user presses Play.
         targetMedia.preload = "none";
         targetMedia.src = state.currentEpisode.audioUrl;
         renderNowPlaying();
@@ -2290,11 +2163,6 @@
       if (!elements.nowPlayingSection.open) nowPlayingAutoOpened = false;
     });
     elements.rssForm.addEventListener("submit", handleAddFeed);
-    elements.latestSection.addEventListener("toggle", () => {
-      if (elements.latestSection.open) refreshLatestEpisodes(false);
-      else placePlayerUnderEpisode();
-    });
-    elements.refreshLatest.addEventListener("click", () => refreshLatestEpisodes(true));
     elements.clearQueue.addEventListener("click", clearQueue);
     elements.playNext.addEventListener("click", playNextInQueue);
     elements.nextEpisode.addEventListener("click", playNextInQueue);
@@ -2376,9 +2244,6 @@
     });
 
     elements.libraryFilter.addEventListener("input", renderLibrary);
-    elements.latestFilter.addEventListener("input", renderLatestEpisodes);
-    elements.latestSort.addEventListener("change", renderLatestEpisodes);
-    elements.markAllLatestPlayed.addEventListener("click", markAllLatestPlayed);
     elements.clearCompletedQueue.addEventListener("click", removePlayedFromQueue);
     elements.exportOpml.addEventListener("click", exportOpml);
     elements.importOpml.addEventListener("change", async () => { const file = elements.importOpml.files[0]; if (!file) return; try { await importOpmlFile(file); } catch (error) { setText(elements.opmlStatus, error.message || "OPML import failed."); } finally { elements.importOpml.value = ""; } });
@@ -2396,7 +2261,7 @@
 
     document.querySelectorAll("main details[id]").forEach(section => { if (Object.prototype.hasOwnProperty.call(state.expandedSections, section.id)) section.open = Boolean(state.expandedSections[section.id]); });
     renderLibrary();
-    renderLatestEpisodes();
+    
     renderQueue();
     renderFavorites();
     renderHistory();
