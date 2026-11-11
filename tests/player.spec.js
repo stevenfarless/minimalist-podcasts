@@ -283,7 +283,11 @@ test("keeps listening timestamps attached to their episodes when duplicate histo
     ]
   })]);
   await page.reload();
-  await openSection(page, "history-section");
+  // Trigger the app's normal persistence handler explicitly so the assertion
+  // does not depend on whether the browser restored the disclosure's open state.
+  await page.evaluate(() => {
+    document.querySelector("#history-section").dispatchEvent(new Event("toggle"));
+  });
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.history).toHaveLength(2);
   expect(saved.history.map(item => item.id)).toEqual(["history-duplicate", "history-unique"]);
