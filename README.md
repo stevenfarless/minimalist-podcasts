@@ -9,7 +9,8 @@ The project began as a small, 100% AI-assisted vibe-coding experiment. It grew i
 - Search Apple Podcasts and Podcast Index through the PinePods hosted search service.
 - Merge catalogue results and remove duplicate shows.
 - Add podcasts manually using a public RSS or Atom feed address.
-- Browse and stream episodes from subscribed feeds.
+- Browse and stream audio or video episodes from subscribed RSS and Atom feeds.
+- Play video episodes with the browser's native HTML5 video controls; no third-party player or runtime library is used.
 - Manage subscriptions, saved episodes, listening history, and a playback queue.
 - See the latest unplayed episodes across subscriptions.
 - Track episodes as unplayed, in progress, or played. Episodes are automatically marked played after 90% completion, and can also be marked manually.
@@ -32,7 +33,7 @@ The project began as a small, 100% AI-assisted vibe-coding experiment. It grew i
 
 The app can also be hosted from the root of a GitHub Pages repository. Naming the main file `index.html` allows GitHub Pages to serve it as the site's entry page.
 
-An internet connection is required for catalogue search, feed retrieval, and audio streaming. Browser support for local file access and media playback varies.
+An internet connection is required for catalogue search, feed retrieval, and media streaming. Audio and video playback use the browser's native media elements. Actual playback depends on the browser's supported containers, codecs, and the publisher's server configuration.
 
 ## Data and privacy
 
@@ -60,9 +61,9 @@ OPML contains subscription addresses and titles. JSON backups contain the app's 
 
 ## Design
 
-The deliberately plain interface uses native HTML elements such as `details`, `summary`, `form`, `button`, `input`, `progress`, `audio`, `article`, and `div`. Input widths use browser defaults so they can fit narrow screens without a stylesheet. There is no CSS, application framework, runtime dependency, or build process. Playwright is used only for development and automated browser tests. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file. Layout uses ordinary document flow rather than tables or a styling framework.
+The deliberately plain interface uses native HTML elements such as `details`, `summary`, `form`, `button`, `input`, `progress`, `audio`, `video`, `article`, and `div`. Input widths use browser defaults so they can fit narrow screens without a stylesheet. There is no CSS, application framework, runtime dependency, or build process. Playwright is used only for development and automated browser tests. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file. Layout uses ordinary document flow rather than tables or a styling framework.
 
-The project favors browser-provided controls and straightforward JavaScript. Application logic is required for catalogue searches, feed retrieval, playback management, and local persistence; the browser handles the native interface wherever practical.
+The project favors browser-provided controls and straightforward JavaScript. Application logic is required for catalogue searches, feed retrieval, playback management, and local persistence; the browser handles the native interface wherever practical, including audio and video controls.
 
 ## Browser compatibility
 
@@ -97,7 +98,7 @@ npx playwright install chromium firefox webkit
 npm test
 ```
 
-The Playwright suite runs in Chromium, Firefox, and WebKit. It covers malformed local storage, RSS/RDF/Atom parsing, queue and episode state, stale media events and playback promises, listening-history normalization, feed response limits, OPML import and duplicate handling, and JSON backup validation, merging, replacement, and file-size limits. GitHub Actions runs the same suite on pushes and pull requests. These tests exercise application logic with controlled feed and media fixtures; they do not verify real-world audio decoding or guarantee compatibility with every podcast host, browser version, or codec.
+The Playwright suite runs in Chromium, Firefox, and WebKit. It covers malformed local storage, RSS/RDF/Atom parsing, audio and video enclosure detection, native media-element switching, queue and episode state, stale media events and playback promises, listening-history normalization, feed response limits, OPML import and duplicate handling, and JSON backup validation, merging, replacement, and file-size limits. GitHub Actions runs the same suite on pushes and pull requests. These tests exercise application logic with controlled feed and media fixtures; they do not verify real-world audio decoding or guarantee compatibility with every podcast host, browser version, or codec.
 
 ## License
 
