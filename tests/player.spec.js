@@ -405,3 +405,84 @@ test("skips duplicate OPML subscriptions while adding new feed addresses", async
   expect(saved.library).toHaveLength(2);
   expect(saved.library.filter(show => show.feedUrl === RSS_URL)).toHaveLength(1);
 });
+
+
+test("merges Apple Podcasts and Podcast Index results without duplicate feed entries", async ({ page }) => {
+  await page.route("https://itunes.apple.com/search?**", route => {
+    const requestUrl = new URL(route.request().url());
+    const callback = requestUrl.searchParams.get("callback");
+    const payload = {
+      results: [{
+        kind: "podcast",
+        trackId: 12345,
+        trackName: "Shared Podcast",
+        artistName: "Apple Creator",
+        feedUrl: RSS_URL,
+        trackCount: 12
+      }]
+    };
+    return route.fulfill({
+      contentType: "application/javascript",
+      body: callback + "(" + JSON.stringify(payload) + ");"
+    });
+  });
+  await page.route("https://search.pinepods.online/api/search?**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    headers: { "access-control-allow-origin": "*" },
+    body: JSON.stringify({
+      feeds: [
+        { title: "Shared Podcast", author: "Index Creator", feedUrl: RSS_URL },
+        { title: "Index-Only Podcast", author: "Index Creator", feedUrl: "https://index.example.test/feed.xml" }
+      ]
+    })
+  }));
+  await page.locator("#search-query").fill("shared");
+  await page.getByRole("button", { name: "Search Podcasts" }).click();
+  await expect(page.locator("#search-status")).toContainText("2 unique podcasts");
+  await expect(page.locator("#search-status")).toContainText("duplicates merged: 1");
+  await expect(page.locator("#search-results")).toContainText("Shared Podcast");
+  await expect(page.locator("#search-results")).toContainText("Index-Only Podcast");
+});
+
+test("keeps Podcast Index search results available when Apple Podcasts is unavailable", async ({ page }) => {
+  await page.route("https://itunes.apple.com/search?**", route => route.abort());
+  await page.route("https://search.pinepods.online/api/search?**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    headers: { "access-control-allow-origin": "*" },
+    body: JSON.stringify({
+      feeds: [{ title: "Fallback Podcast", author: "Index Creator", feedUrl: "https://index.example.test/fallback.xml" }]
+    })
+  }));
+  await page.locator("#search-query").fill("fallback");
+  await page.getByRole("button", { name: "Search Podcasts" }).click();
+  await expect(page.locator("#search-status")).toContainText("1 unique podcasts");
+  await expect(page.locator("#search-status")).toContainText("Apple Podcasts unavailable");
+  await expect(page.locator("#search-results")).toContainText("Fallback Podcast");
+});
+
+test("retries a transient feed failure and succeeds when the publisher recovers", async ({ page }) => {
+  let directAttempts = 0;
+  let proxyAttempts = 0;
+  await page.route(RSS_URL, route => {
+    directAttempts += 1;
+    if (directAttempts === 1) return route.fulfill({ status: 500, body: "Temporary failure" });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/xml",
+      headers: { "access-control-allow-origin": "*" },
+      body: RSS
+    });
+  });
+  await page.route("https://proxy.cors.dev/**", route => {
+    proxyAttempts += 1;
+    return route.fulfill({ status: 500, body: "Proxy unavailable" });
+  });
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(RSS_URL);
+  await page.getByRole("button", { name: "Add Feed" }).click();
+  await expect(page.locator("#library-list")).toContainText("Regression Test Podcast");
+  expect(directAttempts).toBe(2);
+  expect(proxyAttempts).toBe(1);
+});
