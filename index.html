@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
   <title>Podcast Player</title>
-  <meta name="application-version" content="2.0.2">
+  <meta name="application-version" content="2.0.3">
 </head>
 <body>
   <header>
@@ -193,6 +193,8 @@
     const RSS_PROXY_PREFIX = "https://proxy.cors.dev/";
     const STORAGE_KEY = "plain-html-podcast-player-v1";
     const MAX_HISTORY = 30;
+    const MAX_FEED_BYTES = 5 * 1024 * 1024;
+    const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
     const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
     const APPLE_MIN_REQUEST_INTERVAL_MS = 3200;
     const PINEPODS_SEARCH_TIMEOUT_MS = 18000;
@@ -314,10 +316,13 @@
         const queue = normalizeStoredEpisodes(saved.queue, 1000).filter(item => item.audioUrl);
         const favorites = normalizeStoredEpisodes(saved.favorites, 1000);
         const historyItems = (Array.isArray(saved.history) ? saved.history : []).filter(isRecord);
-        const history = normalizeStoredEpisodes(historyItems, MAX_HISTORY).map((episode, index) => ({
-          ...episode,
-          playedAt: String(historyItems[index] && historyItems[index].playedAt || "")
-        }));
+        const historyIds = new Set();
+        const history = historyItems.map(item => {
+          const episode = normalizeEpisode(item);
+          if (!episode.id || historyIds.has(episode.id)) return null;
+          historyIds.add(episode.id);
+          return { ...episode, playedAt: String(item.playedAt || "") };
+        }).filter(Boolean).slice(0, MAX_HISTORY);
         const playedIds = Array.isArray(saved.playedEpisodeIds)
           ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(0, 5000)
           : history.map(item => item.id);
@@ -424,18 +429,30 @@
       return Boolean(expected && actual && expected === actual);
     }
 
-    function readFileText(file) {
-      if (file && typeof file.text === "function") return file.text();
-      return new Promise((resolve, reject) => {
-        if (typeof FileReader === "undefined") {
-          reject(new Error("This browser cannot read the selected file."));
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(reader.error || new Error("Could not read the selected file."));
-        reader.readAsText(file);
-      });
+    async function readFileText(file, maxBytes) {
+      const limit = Number.isFinite(maxBytes) ? maxBytes : MAX_IMPORT_BYTES;
+      if (file && Number.isFinite(file.size) && file.size > limit) {
+        throw new Error("The selected file exceeds the 10 MB import limit.");
+      }
+      let content;
+      if (file && typeof file.text === "function") {
+        content = await file.text();
+      } else {
+        content = await new Promise((resolve, reject) => {
+          if (typeof FileReader === "undefined") {
+            reject(new Error("This browser cannot read the selected file."));
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(reader.error || new Error("Could not read the selected file."));
+          reader.readAsText(file);
+        });
+      }
+      if (new Blob([content]).size > limit) {
+        throw new Error("The selected file exceeds the 10 MB import limit.");
+      }
+      return content;
     }
 
     function saveState() {
@@ -694,7 +711,41 @@
           const proxyError = response.headers.get("X-Cors-Error");
           throw new Error(proxyError || ("HTTP " + response.status));
         }
-        return await response.text();
+        const contentLength = Number(response.headers.get("Content-Length"));
+        if (Number.isFinite(contentLength) && contentLength > MAX_FEED_BYTES) {
+          throw new Error("Feed response exceeds the 5 MB size limit.");
+        }
+        if (response.body && typeof response.body.getReader === "function") {
+          const reader = response.body.getReader();
+          const chunks = [];
+          let totalBytes = 0;
+          try {
+            while (true) {
+              const result = await reader.read();
+              if (result.done) break;
+              totalBytes += result.value.byteLength;
+              if (totalBytes > MAX_FEED_BYTES) {
+                await reader.cancel();
+                throw new Error("Feed response exceeds the 5 MB size limit.");
+              }
+              chunks.push(result.value);
+            }
+          } finally {
+            if (typeof reader.releaseLock === "function") reader.releaseLock();
+          }
+          const bytes = new Uint8Array(totalBytes);
+          let offset = 0;
+          for (const chunk of chunks) {
+            bytes.set(chunk, offset);
+            offset += chunk.byteLength;
+          }
+          return new TextDecoder("utf-8").decode(bytes);
+        }
+        const text = await response.text();
+        if (new Blob([text]).size > MAX_FEED_BYTES) {
+          throw new Error("Feed response exceeds the 5 MB size limit.");
+        }
+        return text;
       } finally {
         clearTimeout(timeout);
       }
@@ -1562,6 +1613,7 @@
       const playPromise = elements.audio.play();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch(error => {
+          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) return;
           setStatus(elements.playerStatus, "The episode is loaded. Press Play in the audio controls to start it. " + (error && error.name === "NotAllowedError" ? "Your browser requires a direct play action." : "The audio source may be unavailable."));
         });
       }
@@ -1978,7 +2030,7 @@
     }
 
     async function importOpmlFile(file) {
-      const xml = new DOMParser().parseFromString(await readFileText(file), "application/xml");
+      const xml = new DOMParser().parseFromString(await readFileText(file, MAX_IMPORT_BYTES), "application/xml");
       if (xml.querySelector("parsererror") || !xml.documentElement || String(xml.documentElement.localName || xml.documentElement.nodeName).toLowerCase() !== "opml") throw new Error("The selected file is not valid OPML/XML.");
       const outlines = [...xml.getElementsByTagName("outline")];
       const imported = outlines.map(node => ({ title: node.getAttribute("title") || node.getAttribute("text") || "Imported Podcast", feedUrl: node.getAttribute("xmlUrl") || node.getAttribute("url") || "", appleUrl: node.getAttribute("htmlUrl") || "", source: "OPML import" })).filter(show => safeHttpUrl(show.feedUrl));
@@ -2018,7 +2070,14 @@
       });
       clean.queue = normalizeEpisodes(raw.queue, "queue");
       clean.favorites = normalizeEpisodes(raw.favorites, "favorites");
-      clean.history = normalizeEpisodes(raw.history, "history").map((episode, index) => ({ ...episode, playedAt: String((raw.history || [])[index].playedAt || "") }));
+      const historyIds = new Set();
+      clean.history = (raw.history || []).map(item => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid episode in history.");
+        const episode = persistableEpisode(normalizeEpisode(item));
+        if (!episode.id || historyIds.has(episode.id)) return null;
+        historyIds.add(episode.id);
+        return { ...episode, playedAt: String(item.playedAt || "") };
+      }).filter(Boolean).slice(0, MAX_HISTORY);
       clean.inProgress = (raw.inProgress || []).map(item => {
         if (!item || typeof item !== "object" || Array.isArray(item) || !item.episode || typeof item.episode !== "object" || Array.isArray(item.episode) || typeof item.episode.id !== "string" || !item.episode.id.trim()) throw new Error("The backup contains an invalid listening-progress entry.");
         const currentTime = Number(item.currentTime), duration = Number(item.duration);
@@ -2044,7 +2103,7 @@
     }
 
     async function importBackupFile(file) {
-      const parsed = JSON.parse(await readFileText(file));
+      const parsed = JSON.parse(await readFileText(file, MAX_IMPORT_BYTES));
       const raw = parsed && parsed.data ? parsed.data : parsed;
       const incoming = validateBackupData(raw);
       if (elements.replaceBackup.checked) {

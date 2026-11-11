@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.3
+
+- Ignore delayed playback-start failures from episodes that are no longer selected.
+- Preserve each listening-history timestamp when duplicate episode IDs are removed from saved data or imported backups.
+- Limit downloaded feed documents to 5 MB and OPML/JSON imports to 10 MB, with early rejection and streamed response-size checks.
+- Expand browser regression coverage for playback races, history normalization, oversized feeds and imports, backup merge/replace behavior, and duplicate OPML subscriptions.
+- Update GitHub Actions to Node.js 24-compatible action releases and run the suite on Node.js 24.
+- Add weekly Dependabot checks for npm packages and GitHub Actions.
+
 ## 2.0.2
 
 - Guard playback progress, completion, pause, and error handling against media events from a previously selected audio source.

@@ -24,6 +24,28 @@ const ATOM = `<?xml version="1.0" encoding="UTF-8"?>
   <entry><id>tag:example.test,2026:atom-one</id><title>Atom Episode</title><published>2026-11-10T12:00:00Z</published><link rel="enclosure" type="audio/mpeg" href="../media/atom.mp3"/><summary>Atom summary</summary></entry>
 </feed>`;
 
+const HISTORY_EPISODE = {
+  id: "history-duplicate",
+  title: "Duplicate History Episode",
+  showTitle: "History Test",
+  audioUrl: "https://media.example.test/history.mp3",
+  date: "2026-11-10T12:00:00Z"
+};
+const UNIQUE_HISTORY_EPISODE = {
+  id: "history-unique",
+  title: "Unique History Episode",
+  showTitle: "History Test",
+  audioUrl: "https://media.example.test/unique.mp3",
+  date: "2026-11-10T12:00:00Z"
+};
+const HISTORY_FIXTURE = {
+  history: [
+    { ...HISTORY_EPISODE, playedAt: "2026-11-10T01:00:00Z" },
+    { ...HISTORY_EPISODE, playedAt: "2026-11-10T02:00:00Z" },
+    { ...UNIQUE_HISTORY_EPISODE, playedAt: "2026-11-10T03:00:00Z" }
+  ]
+};
+
 async function mockMedia(page) {
   await page.addInitScript(() => {
     // The fixtures use unresolvable *.example.test media hosts. Record the source
@@ -73,8 +95,11 @@ async function addFeed(page, url, body) {
   await page.getByRole("button", { name: "Add Feed" }).click();
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   await mockMedia(page);
+  if (testInfo.title === "keeps listening timestamps attached to their episodes when duplicate history IDs are removed") {
+    await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(HISTORY_FIXTURE)]);
+  }
   await page.goto("/");
 });
 
@@ -230,4 +255,290 @@ test("rejects invalid backups without overwriting current browser data", async (
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.library).toHaveLength(1);
   expect(saved.library[0].feedUrl).toBe(RSS_URL);
+});
+
+
+test("ignores a delayed play rejection from an episode that is no longer selected", async ({ page }) => {
+  await addFeed(page, RSS_URL, RSS);
+  await page.evaluate(() => {
+    window.pendingPlayPromises = [];
+    HTMLMediaElement.prototype.play = function () {
+      return new Promise((resolve, reject) => window.pendingPlayPromises.push({ resolve, reject }));
+    };
+  });
+
+  await page.locator("#library-list").getByText("Episode One", { exact: true }).click();
+  await page.getByRole("button", { name: "Play Episode" }).first().click();
+  await page.locator("#library-list").getByText("Episode Two", { exact: true }).click();
+  await page.getByRole("button", { name: "Play Episode" }).last().click();
+
+  await page.evaluate(() => {
+    window.pendingPlayPromises[0].reject(new DOMException("Playback was interrupted", "NotAllowedError"));
+  });
+  await expect(page.locator("#player-status")).not.toContainText("The episode is loaded");
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.currentEpisode.title).toBe("Episode Two");
+});
+
+test("keeps listening timestamps attached to their episodes when duplicate history IDs are removed", async ({ page }) => {
+  await openSection(page, "history-section");
+  // Trigger persistence explicitly so the test does not depend on the timing
+  // of the native details toggle event.
+  await page.evaluate(() => {
+    document.querySelector("#history-section").dispatchEvent(new Event("toggle"));
+  });
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.history).toHaveLength(2);
+  expect(saved.history.map(item => item.id)).toEqual(["history-duplicate", "history-unique"]);
+  expect(saved.history.map(item => item.playedAt)).toEqual([
+    "2026-11-10T01:00:00Z",
+    "2026-11-10T03:00:00Z"
+  ]);
+});
+
+test("rejects oversized feed responses before parsing their XML", async ({ page }) => {
+  const oversizedUrl = "https://feeds.example.test/oversized.xml";
+  const oversizedBody = " ".repeat(5 * 1024 * 1024 + 1);
+  await page.route(oversizedUrl, route => route.fulfill({
+    status: 200,
+    contentType: "application/xml",
+    headers: { "access-control-allow-origin": "*" },
+    body: oversizedBody
+  }));
+  await page.route("https://proxy.cors.dev/**", route => route.fulfill({
+    status: 200,
+    contentType: "application/xml",
+    headers: { "access-control-allow-origin": "*" },
+    body: oversizedBody
+  }));
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(oversizedUrl);
+  await page.getByRole("button", { name: "Add Feed" }).click();
+  await expect(page.locator("#rss-status")).toContainText("5 MB size limit");
+  await expect(page.locator("#library-list")).not.toContainText("Too Large");
+});
+
+test("rejects oversized OPML and JSON backup files before parsing", async ({ page }) => {
+  await openSection(page, "data-section");
+  const oversized = Buffer.alloc(10 * 1024 * 1024 + 1, 32);
+  await page.locator("#import-opml").setInputFiles({
+    name: "oversized.opml",
+    mimeType: "text/xml",
+    buffer: oversized
+  });
+  await expect(page.locator("#opml-status")).toContainText("10 MB import limit");
+  await page.locator("#import-backup").setInputFiles({
+    name: "oversized.json",
+    mimeType: "application/json",
+    buffer: oversized
+  });
+  await expect(page.locator("#backup-status")).toContainText("10 MB import limit");
+});
+
+test("merges a backup while preserving existing subscriptions and adding missing items", async ({ page }) => {
+  await addFeed(page, RSS_URL, RSS);
+  await openSection(page, "data-section");
+  const backup = {
+    schemaVersion: 2,
+    library: [
+      { title: "Regression Test Podcast Updated", feedUrl: RSS_URL },
+      { title: "Backup-Only Podcast", feedUrl: "https://backup.example.test/feed.xml" }
+    ],
+    queue: [{
+      id: "backup-queue-episode",
+      title: "Backup Queue Episode",
+      showTitle: "Backup-Only Podcast",
+      audioUrl: "https://media.example.test/backup.mp3"
+    }],
+    favorites: [],
+    history: [
+      { id: "backup-history", title: "Backup History", showTitle: "Backup-Only Podcast", audioUrl: "https://media.example.test/history.mp3", playedAt: "2026-11-10T04:00:00Z" },
+      { id: "backup-history", title: "Duplicate Backup History", showTitle: "Backup-Only Podcast", audioUrl: "https://media.example.test/history.mp3", playedAt: "2026-11-10T05:00:00Z" }
+    ],
+    inProgress: []
+  };
+  await page.locator("#import-backup").setInputFiles({
+    name: "merge.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup))
+  });
+  await expect(page.locator("#backup-status")).toContainText("Backup merged");
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library).toHaveLength(2);
+  expect(saved.library.filter(show => show.feedUrl === RSS_URL)).toHaveLength(1);
+  expect(saved.library.some(show => show.feedUrl === "https://backup.example.test/feed.xml")).toBe(true);
+  expect(saved.queue.map(item => item.id)).toContain("backup-queue-episode");
+  expect(saved.history.filter(item => item.id === "backup-history")).toHaveLength(1);
+  expect(saved.history.find(item => item.id === "backup-history").playedAt).toBe("2026-11-10T04:00:00Z");
+});
+
+test("replaces existing browser data when the backup replacement option is selected", async ({ page }) => {
+  await addFeed(page, RSS_URL, RSS);
+  await openSection(page, "data-section");
+  const backup = {
+    schemaVersion: 2,
+    library: [{ title: "Replacement Podcast", feedUrl: "https://replacement.example.test/feed.xml" }],
+    queue: [],
+    favorites: [],
+    history: [],
+    inProgress: []
+  };
+  await page.locator("#replace-backup").check();
+  await page.locator("#import-backup").setInputFiles({
+    name: "replacement.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup))
+  });
+  await expect(page.locator("#backup-status")).toContainText("replacing current data");
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library).toHaveLength(1);
+  expect(saved.library[0].feedUrl).toBe("https://replacement.example.test/feed.xml");
+});
+
+test("skips duplicate OPML subscriptions while adding new feed addresses", async ({ page }) => {
+  await addFeed(page, RSS_URL, RSS);
+  await openSection(page, "data-section");
+  const opml = '<?xml version="1.0"?><opml version="2.0"><head/><body>' +
+    '<outline text="Existing" xmlUrl="' + RSS_URL + '"/>' +
+    '<outline text="New Show" xmlUrl="https://opml.example.test/new.xml"/>' +
+    '</body></opml>';
+  await page.locator("#import-opml").setInputFiles({
+    name: "subscriptions.opml",
+    mimeType: "text/xml",
+    buffer: Buffer.from(opml)
+  });
+  await expect(page.locator("#opml-status")).toContainText("1 new subscriptions");
+  await expect(page.locator("#opml-status")).toContainText("1 duplicates were skipped");
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library).toHaveLength(2);
+  expect(saved.library.filter(show => show.feedUrl === RSS_URL)).toHaveLength(1);
+});
+
+
+test("merges Apple Podcasts and Podcast Index results without duplicate feed entries", async ({ page }) => {
+  await page.route("https://itunes.apple.com/search?**", route => {
+    const requestUrl = new URL(route.request().url());
+    const callback = requestUrl.searchParams.get("callback");
+    const payload = {
+      results: [{
+        kind: "podcast",
+        trackId: 12345,
+        trackName: "Shared Podcast",
+        artistName: "Apple Creator",
+        feedUrl: RSS_URL,
+        trackCount: 12
+      }]
+    };
+    return route.fulfill({
+      contentType: "application/javascript",
+      body: callback + "(" + JSON.stringify(payload) + ");"
+    });
+  });
+  await page.route("https://search.pinepods.online/api/search?**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    headers: { "access-control-allow-origin": "*" },
+    body: JSON.stringify({
+      feeds: [
+        { title: "Shared Podcast", author: "Index Creator", feedUrl: RSS_URL },
+        { title: "Index-Only Podcast", author: "Index Creator", feedUrl: "https://index.example.test/feed.xml" }
+      ]
+    })
+  }));
+  await page.locator("#search-query").fill("shared");
+  await page.getByRole("button", { name: "Search Podcasts" }).click();
+  await expect(page.locator("#search-status")).toContainText("2 unique podcasts");
+  await expect(page.locator("#search-status")).toContainText("duplicates merged: 1");
+  await expect(page.locator("#search-results")).toContainText("Shared Podcast");
+  await expect(page.locator("#search-results")).toContainText("Index-Only Podcast");
+});
+
+test("keeps Podcast Index search results available when Apple Podcasts is unavailable", async ({ page }) => {
+  await page.route("https://itunes.apple.com/search?**", route => route.abort());
+  await page.route("https://search.pinepods.online/api/search?**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    headers: { "access-control-allow-origin": "*" },
+    body: JSON.stringify({
+      feeds: [{ title: "Fallback Podcast", author: "Index Creator", feedUrl: "https://index.example.test/fallback.xml" }]
+    })
+  }));
+  await page.locator("#search-query").fill("fallback");
+  await page.getByRole("button", { name: "Search Podcasts" }).click();
+  await expect(page.locator("#search-status")).toContainText("1 unique podcasts");
+  await expect(page.locator("#search-status")).toContainText("Apple Podcasts unavailable");
+  await expect(page.locator("#search-results")).toContainText("Fallback Podcast");
+});
+
+test("retries a transient feed failure and succeeds when the publisher recovers", async ({ page }) => {
+  let directAttempts = 0;
+  let proxyAttempts = 0;
+  await page.route(RSS_URL, route => {
+    directAttempts += 1;
+    if (directAttempts === 1) return route.fulfill({ status: 500, body: "Temporary failure" });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/xml",
+      headers: { "access-control-allow-origin": "*" },
+      body: RSS
+    });
+  });
+  await page.route("https://proxy.cors.dev/**", route => {
+    proxyAttempts += 1;
+    return route.fulfill({ status: 500, body: "Proxy unavailable" });
+  });
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(RSS_URL);
+  await page.getByRole("button", { name: "Add Feed" }).click();
+  await expect(page.locator("#library-list")).toContainText("Regression Test Podcast");
+  expect(directAttempts).toBe(2);
+  expect(proxyAttempts).toBe(1);
+});
+
+
+test("reorders and removes episodes in the playback queue", async ({ page }) => {
+  await addFeed(page, RSS_URL, RSS);
+  await page.locator("#library-list").getByText("Episode One", { exact: true }).click();
+  await page.getByRole("button", { name: "Add to Queue" }).first().click();
+  await page.locator("#library-list").getByText("Episode Two", { exact: true }).click();
+  await page.getByRole("button", { name: "Add to Queue" }).last().click();
+
+  await openSection(page, "queue-section");
+  let items = page.locator("#queue-list > li");
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText("Episode One");
+  await expect(items.nth(1)).toContainText("Episode Two");
+  await items.nth(1).getByRole("button", { name: "Move Up" }).click();
+  items = page.locator("#queue-list > li");
+  await expect(items.nth(0)).toContainText("Episode Two");
+  await expect(items.nth(1)).toContainText("Episode One");
+  await items.nth(0).getByRole("button", { name: "Remove" }).click();
+  items = page.locator("#queue-list > li");
+  await expect(items).toHaveCount(1);
+  await expect(items.first()).toContainText("Episode One");
+});
+
+test("falls back to the public CORS proxy when a publisher blocks direct feed access", async ({ page }) => {
+  await page.route(RSS_URL, route => route.fulfill({ status: 403, body: "Direct access denied" }));
+  await page.route("https://proxy.cors.dev/**", route => route.fulfill({
+    status: 200,
+    contentType: "application/xml",
+    headers: { "access-control-allow-origin": "*" },
+    body: RSS
+  }));
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(RSS_URL);
+  await page.getByRole("button", { name: "Add Feed" }).click();
+  await expect(page.locator("#library-list")).toContainText("Regression Test Podcast");
+});
+
+test("reports browser storage quota failures without breaking the current session", async ({ page }) => {
+  await page.evaluate(() => {
+    Storage.prototype.setItem = function () {
+      throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+    };
+  });
+  await addFeed(page, RSS_URL, RSS);
+  await expect(page.locator("#player-status")).toContainText("storage is unavailable or full");
+  await expect(page.locator("#library-list")).toContainText("Regression Test Podcast");
 });
