@@ -11,6 +11,25 @@ const RSS = `<?xml version="1.0" encoding="UTF-8"?>
     <item><guid>episode-two</guid><title>Episode Two</title><pubDate>Tue, 10 Nov 2026 12:00:00 GMT</pubDate><enclosure url="https://media.example.test/two.mp3" type="audio/mpeg" length="1000"/><description>Second episode</description></item>
   </channel>
 </rss>`;
+const VIDEO_RSS_URL = "https://feeds.example.test/video.xml";
+const VIDEO_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+  <channel>
+    <title>Video Regression Podcast</title>
+    <description>A video test feed</description>
+    <item>
+      <guid>video-one</guid><title>Video Episode</title>
+      <enclosure url="https://media.example.test/video-audio.mp3" type="audio/mpeg" length="1000"/>
+      <podcast:alternateEnclosure type="video/mp4" length="5000">
+        <podcast:source uri="https://media.example.test/video-one.mp4"/>
+      </podcast:alternateEnclosure>
+    </item>
+    <item>
+      <guid>audio-two</guid><title>Audio Episode</title>
+      <enclosure url="https://media.example.test/audio-two.mp3" type="audio/mpeg" length="1000"/>
+    </item>
+  </channel>
+</rss>`;
 const RDF_URL = "https://feeds.example.test/rdf.xml";
 const RDF = `<?xml version="1.0" encoding="UTF-8"?>
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:enc="http://purl.org/rss/1.0/modules/content/">
@@ -163,6 +182,28 @@ test("parses RSS 1.0 RDF feeds and selects audio over non-audio enclosures", asy
   await expect(page.locator("#library-list")).toContainText("RDF Episode");
   const episode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "RDF Episode" });
   await expect(episode).toHaveAttribute("data-audio-url", "https://media.example.test/audio.ogg");
+});
+
+test("parses video podcast enclosures and uses the browser's native video element", async ({ page }) => {
+  await addFeed(page, VIDEO_RSS_URL, VIDEO_RSS);
+  const videoEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Video Episode" });
+  await expect(videoEpisode).toHaveAttribute("data-media-type", "video");
+  await expect(videoEpisode).toHaveAttribute("data-audio-url", "https://media.example.test/video-one.mp4");
+  await videoEpisode.getByText("Video Episode", { exact: true }).click();
+  await videoEpisode.getByRole("button", { name: "Play Episode" }).click();
+
+  const video = page.locator("#video-player");
+  await expect(video).toBeVisible();
+  await expect(video).toHaveAttribute("controls", "");
+  await expect(page.locator("#audio-player")).toBeHidden();
+  expect(await video.evaluate(element => element.src)).toBe("https://media.example.test/video-one.mp4");
+
+  const audioEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Audio Episode" });
+  await audioEpisode.getByText("Audio Episode", { exact: true }).click();
+  await audioEpisode.getByRole("button", { name: "Play Episode" }).click();
+  await expect(page.locator("#audio-player")).toBeVisible();
+  await expect(video).toBeHidden();
+  expect(await page.locator("#audio-player").evaluate(element => element.src)).toBe("https://media.example.test/audio-two.mp3");
 });
 
 test("parses Atom enclosure links and resolves relative audio URLs", async ({ page }) => {
