@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
   <title>Podcast Player</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2712%27 fill=%27%23222%27/%3E%3Cpath d=%27M18 36v-7a14 14 0 0 1 28 0v7M18 33v14h7V33zm21 0v14h7V33z%27 fill=%27none%27 stroke=%27white%27 stroke-width=%274%27/%3E%3C/svg%3E">
   <meta name="application-version" content="2.1.0">
 </head>
 <body>
@@ -583,12 +584,16 @@
       const safeUrl = safeHttpUrl(url);
       if (!safeUrl) return null;
       const image = document.createElement("img");
-      image.src = safeUrl;
       image.alt = alt || "Podcast artwork";
       image.width = width || 100;
-      image.height = width || 100;
       image.loading = "lazy";
       image.referrerPolicy = "no-referrer";
+      image.addEventListener("load", () => {
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+          image.height = Math.max(1, Math.round(image.width * image.naturalHeight / image.naturalWidth));
+        }
+      }, { once: true });
+      image.src = safeUrl;
       return image;
     }
 
@@ -1665,6 +1670,7 @@
         };
         media.addEventListener("loadedmetadata", seekOnMetadata);
       }
+      media.preload = "metadata";
       media.src = normalized.audioUrl;
       media.playbackRate = state.playbackRate;
       media.load();
@@ -1777,7 +1783,7 @@
       const episode = state.currentEpisode;
       const image = makeImage(episode.image || episode.showArtwork, episode.showTitle + " artwork", 80);
       if (image) elements.nowPlaying.append(image);
-      elements.nowPlaying.append(makeElement("h3", episode.title));
+      elements.nowPlaying.append(makeElement("h2", episode.title));
       elements.nowPlaying.append(makeElement("p", episode.showTitle));
       if (episode.link) elements.nowPlaying.append(makeExternalLink(episode.link, "Episode page"));
       if (episode.mediaType === "video" && episode.audioUrl) elements.nowPlaying.append(makeExternalLink(episode.audioUrl, "Open Video File"));
@@ -2262,8 +2268,9 @@
           if (Number.isFinite(targetMedia.duration) && targetMedia.duration > 0 && resumeAt > 0 && resumeAt < targetMedia.duration) targetMedia.currentTime = resumeAt;
         };
         targetMedia.addEventListener("loadedmetadata", restorePosition);
+        // Restore the controls without requesting media until the user presses Play.
+        targetMedia.preload = "none";
         targetMedia.src = state.currentEpisode.audioUrl;
-        targetMedia.load();
         renderNowPlaying();
       }
     }
