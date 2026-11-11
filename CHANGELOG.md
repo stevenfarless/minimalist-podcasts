@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.1
+
+- Load very large feeds (for example, shows with thousands of episodes) instead of failing: feeds are read up to 10 MB and trimmed to the last complete episode, so the newest episodes appear and the status line says the list was shortened.
+- Raise the downloaded feed limit from 5 MB to 10 MB. A feed that cannot fit even one complete episode inside the limit is still rejected.
+- Replace the oversized-feed regression test and add coverage for loading the newest episodes from a feed larger than the limit.
+
 ## 2.1.0
 
 - Add native HTML5 video playback for video podcast enclosures, including Podcasting 2.0 alternate enclosures.
