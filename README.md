@@ -79,7 +79,7 @@ Feed diagnostics can help identify failed requests. A failed refresh retains the
 
 ## Development
 
-- Application version: `2.0.3`
+- Application version: `2.1.0`
 - Storage schema: `2`
 - Main application: `index.html`
 - Language: HTML and vanilla JavaScript
