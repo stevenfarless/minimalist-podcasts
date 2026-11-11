@@ -1060,6 +1060,17 @@
       if (normalized.trackCount && !inLibrary) card.append(makeElement("p", normalized.trackCount + " episodes listed by Apple"));
 
       const panel = existingPanel || createShowPanel(normalized);
+      if (existingPanel && existingPanel.show.feedUrl && normalized.feedUrl && existingPanel.show.feedUrl !== normalized.feedUrl) {
+        panel.loadToken += 1;
+        panel.loaded = false;
+        panel.episodes = [];
+        panel.expandedEpisodes.clear();
+        panel.filter.value = "";
+        panel.details.replaceChildren();
+        panel.list.replaceChildren();
+        panel.status.textContent = "";
+        panel.container.hidden = true;
+      }
       panel.show = normalized;
       const view = makeElement("button", panel.container.hidden ? "View Episodes" : "Hide Episodes");
       view.type = "button";
@@ -1169,6 +1180,11 @@
         const feedUrl = await lookupAppleFeed(normalized);
         if (!feedUrl) throw new Error("Apple did not provide an RSS feed URL for this show. Try adding its public feed address manually.");
         panel.show = { ...normalized, feedUrl };
+        const savedShow = state.library.find(item => item.id === normalized.id);
+        if (savedShow && savedShow.feedUrl !== feedUrl) {
+          savedShow.feedUrl = feedUrl;
+          saveState();
+        }
         const cached = !settings.force && feedCache.get(feedUrl);
         let result;
         if (cached) {
@@ -1899,6 +1915,11 @@
       const incoming = validateBackupData(raw);
       if (elements.replaceBackup.checked) {
         latestEpisodesByShow.clear(); feedCache.clear(); latestFeedCacheTimestamps.clear();
+        for (const panel of libraryPanels.values()) {
+          panel.loadToken += 1;
+          showPanels.delete(panel);
+        }
+        libraryPanels.clear();
         Object.assign(state, incoming);
         if (!state.currentEpisode) {
           playbackGeneration += 1;
