@@ -10,16 +10,17 @@ permissions:
   contents: read
 
 jobs:
-  chromium:
+  browser-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
+          package-manager-cache: false
       - name: Install test dependencies
         run: npm ci
       - name: Install Chromium, Firefox, and WebKit
@@ -28,7 +29,7 @@ jobs:
         run: npm test
       - name: Upload test results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: test-results/
