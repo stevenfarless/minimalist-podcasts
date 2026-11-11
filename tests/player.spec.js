@@ -337,9 +337,9 @@ test("keeps listening timestamps attached to their episodes when duplicate histo
   ]);
 });
 
-test("rejects oversized feed responses before parsing their XML", async ({ page }) => {
+test("rejects an oversized feed when no complete episode fits inside the size limit", async ({ page }) => {
   const oversizedUrl = "https://feeds.example.test/oversized.xml";
-  const oversizedBody = " ".repeat(5 * 1024 * 1024 + 1);
+  const oversizedBody = " ".repeat(10 * 1024 * 1024 + 1);
   await page.route(oversizedUrl, route => route.fulfill({
     status: 200,
     contentType: "application/xml",
@@ -355,8 +355,26 @@ test("rejects oversized feed responses before parsing their XML", async ({ page 
   await openSection(page, "rss-section");
   await page.locator("#rss-url").fill(oversizedUrl);
   await page.getByRole("button", { name: "Add Feed" }).click();
-  await expect(page.locator("#rss-status")).toContainText("5 MB size limit");
+  await expect(page.locator("#rss-status")).toContainText("10 MB size limit");
   await expect(page.locator("#library-list")).not.toContainText("Too Large");
+});
+
+test("loads the newest episodes from a feed larger than the size limit", async ({ page }) => {
+  const largeUrl = "https://feeds.example.test/large.xml";
+  const filler = "x".repeat(8000);
+  const items = [];
+  // Newest first, like real podcast feeds; far more than fits in 10 MB.
+  for (let i = 1500; i >= 1; i -= 1) {
+    items.push(`<item><guid>large-${i}</guid><title>Large Episode ${i}</title><pubDate>Mon, 09 Nov 2026 12:00:00 GMT</pubDate><enclosure url="https://media.example.test/large-${i}.mp3" type="audio/mpeg" length="1000"/><description>${filler}</description></item>`);
+  }
+  const largeBody = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Large Regression Podcast</title><description>A very long show</description>${items.join("\n")}</channel></rss>`;
+  expect(Buffer.byteLength(largeBody)).toBeGreaterThan(10 * 1024 * 1024);
+  await addFeed(page, largeUrl, largeBody);
+  await expect(page.locator("#rss-status")).not.toContainText("size limit");
+  await expect(page.locator("#library-list")).toContainText("Large Regression Podcast");
+  await expect(page.locator("#library-list")).toContainText("Large Episode 1500");
+  await expect(page.locator("#library-list")).not.toContainText(/Large Episode 1(?!\d)/);
 });
 
 test("rejects oversized OPML and JSON backup files before parsing", async ({ page }) => {
