@@ -326,6 +326,7 @@
     };
     let currentQueueIndex = -1;
     let playbackGeneration = 0;
+    let suppressNextPauseEvent = false;
     const libraryPanels = new Map();
     const showPanels = new Set();
     let activeSearchPanel = null;
@@ -1349,6 +1350,7 @@
         updateProgress(state.currentEpisode, elements.audio.currentTime, elements.audio.duration);
       }
       currentQueueIndex = index;
+      if (!elements.audio.paused) suppressNextPauseEvent = true;
       elements.audio.pause();
       state.currentEpisode = normalized;
       state.currentTime = Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0 ? Number(resumeAt) : 0;
@@ -1806,7 +1808,7 @@
 
     function validateBackupData(raw) {
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("The backup data is not a valid object.");
-      if (raw.schemaVersion != null && Number(raw.schemaVersion) > 2) throw new Error("This backup was created by a newer version of Podcast Player.");
+      if (raw.schemaVersion != null && (!Number.isInteger(Number(raw.schemaVersion)) || Number(raw.schemaVersion) < 1 || Number(raw.schemaVersion) > 2)) throw new Error("This backup has an unsupported schema version.");
       for (const key of ["library", "queue", "favorites", "history", "inProgress"]) {
         if (raw[key] != null && !Array.isArray(raw[key])) throw new Error("The backup contains an invalid " + key + " collection.");
       }
@@ -1826,21 +1828,24 @@
       clean.favorites = normalizeEpisodes(raw.favorites, "favorites");
       clean.history = normalizeEpisodes(raw.history, "history").map((episode, index) => ({ ...episode, playedAt: String((raw.history || [])[index].playedAt || "") }));
       clean.inProgress = (raw.inProgress || []).map(item => {
-        if (!item || typeof item !== "object" || !item.episode || typeof item.episode !== "object") throw new Error("The backup contains an invalid listening-progress entry.");
+        if (!item || typeof item !== "object" || Array.isArray(item) || !item.episode || typeof item.episode !== "object" || Array.isArray(item.episode) || typeof item.episode.id !== "string" || !item.episode.id.trim()) throw new Error("The backup contains an invalid listening-progress entry.");
         const currentTime = Number(item.currentTime), duration = Number(item.duration);
         if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) throw new Error("The backup contains invalid listening-progress times.");
         return { episode: persistableEpisode(normalizeEpisode(item.episode)), currentTime, duration, updatedAt: String(item.updatedAt || "") };
       });
-      clean.playedEpisodeIds = Array.isArray(raw.playedEpisodeIds)
-        ? [...new Set(raw.playedEpisodeIds.filter(id => typeof id === "string" && id))]
+      if (raw.playedEpisodeIds != null && (!Array.isArray(raw.playedEpisodeIds) || raw.playedEpisodeIds.some(id => typeof id !== "string" || !id.trim()))) throw new Error("The backup contains invalid played-episode IDs.");
+      clean.playedEpisodeIds = raw.playedEpisodeIds != null
+        ? [...new Set(raw.playedEpisodeIds)]
         : clean.history.map(item => item.id);
       if (raw.diagnostics != null && !Array.isArray(raw.diagnostics)) throw new Error("The backup contains invalid diagnostics.");
       clean.diagnostics = (raw.diagnostics || []).filter(item => item && typeof item === "object").slice(-100);
       if (raw.expandedSections != null && (typeof raw.expandedSections !== "object" || Array.isArray(raw.expandedSections))) throw new Error("The backup contains invalid interface settings.");
       clean.expandedSections = raw.expandedSections || {};
       if (raw.currentEpisode != null && (typeof raw.currentEpisode !== "object" || Array.isArray(raw.currentEpisode))) throw new Error("The backup contains an invalid current episode.");
+      if (raw.currentEpisode && (typeof raw.currentEpisode.id !== "string" || !raw.currentEpisode.id.trim() || !safeHttpUrl(raw.currentEpisode.audioUrl))) throw new Error("The backup contains an invalid current episode.");
       clean.currentEpisode = raw.currentEpisode ? persistableEpisode(normalizeEpisode(raw.currentEpisode)) : null;
-      clean.currentTime = Number.isFinite(Number(raw.currentTime)) && Number(raw.currentTime) >= 0 ? Number(raw.currentTime) : 0;
+      if (raw.currentTime != null && (typeof raw.currentTime !== "number" || !Number.isFinite(raw.currentTime) || raw.currentTime < 0)) throw new Error("The backup contains an invalid current playback position.");
+      clean.currentTime = raw.currentTime == null ? 0 : raw.currentTime;
       const rate = Number(raw.playbackRate);
       clean.playbackRate = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].includes(rate) ? rate : 1;
       return clean;
@@ -2006,6 +2011,10 @@
       setStatus(elements.playerStatus, "Playing: " + (state.currentEpisode ? state.currentEpisode.title : "podcast episode"));
     });
     elements.audio.addEventListener("pause", () => {
+      if (suppressNextPauseEvent) {
+        suppressNextPauseEvent = false;
+        return;
+      }
       if (!elements.audio.ended && state.currentEpisode) {
         setStatus(elements.playerStatus, "Paused: " + state.currentEpisode.title);
         if (Number.isFinite(elements.audio.currentTime) && elements.audio.currentTime > 0) {
