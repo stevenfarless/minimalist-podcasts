@@ -1,13 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
+  <meta name="description"
+    content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
   <title>Podcast Player</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2712%27/%3E%3Ctext x=%2732%27 y=%2746%27 text-anchor=%27middle%27 font-size=%2740%27 fill=%27white%27%3EP%3C/text%3E%3C/svg%3E">
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2712%27/%3E%3Ctext x=%2732%27 y=%2746%27 text-anchor=%27middle%27 font-size=%2740%27 fill=%27white%27%3EP%3C/text%3E%3C/svg%3E">
   <meta name="application-version" content="2.2.0">
 </head>
+
 <body>
   <header>
     <h1>Podcast Player</h1>
@@ -23,7 +27,8 @@
       <p id="search-status" role="status" aria-live="polite"></p>
       <details id="search-section">
         <summary>Podcast Search Results</summary>
-        <p id="search-results-navigation" hidden><button type="button" id="back-to-search-results">Back to All Search Results</button></p>
+        <p id="search-results-navigation" hidden><button type="button" id="back-to-search-results">Back to All Search
+            Results</button></p>
         <ol id="search-results"></ol>
       </details>
     </section>
@@ -35,10 +40,12 @@
       <div>
         <form id="rss-form">
           <p><label for="rss-url">Public RSS or Atom feed URL</label></p>
-          <p><input id="rss-url" name="rss" type="url" inputmode="url" placeholder="https://example.com/podcast.rss" required></p>
+          <p><input id="rss-url" name="rss" type="url" inputmode="url" placeholder="https://example.com/podcast.rss"
+              required></p>
           <p><button type="submit">Add Feed</button></p>
         </form>
-        <p>Use this for a podcast that is missing from the searchable catalogues. The feed must be publicly accessible.</p>
+        <p>Use this for a podcast that is missing from the searchable catalogues. The feed must be publicly accessible.
+        </p>
         <p id="rss-status" role="status" aria-live="polite"></p>
       </div>
     </details>
@@ -57,12 +64,13 @@
 
     <hr>
 
-<details id="queue-section">
+    <details id="queue-section">
       <summary>Playback Queue</summary>
       <div>
         <p id="queue-empty">Your queue is empty. Add episodes with the “Add to Queue” button.</p>
         <ol id="queue-list"></ol>
-        <p><button type="button" id="clear-queue">Clear Queue</button> <button type="button" id="play-next">Play Next in Queue</button></p>
+        <p><button type="button" id="clear-queue">Clear Queue</button> <button type="button" id="play-next">Play Next in
+            Queue</button></p>
       </div>
     </details>
 
@@ -74,13 +82,16 @@
         <div id="now-playing">
           <p>Nothing is playing.</p>
         </div>
-        <p>The player controls move beneath the episode currently playing when that episode is visible in an open podcast.</p>
+        <p>The player controls move beneath the episode currently playing when that episode is visible in an open
+          podcast.</p>
         <div id="player-fallback">
           <div id="player-interface">
             <div>
               <p><strong>Playback controls</strong></p>
-              <p><button type="button" id="previous-episode">Previous Episode</button> <button type="button" id="skip-back">Back 15 Seconds</button></p>
-              <p><button type="button" id="skip-forward">Forward 30 Seconds</button> <button type="button" id="next-episode">Next Episode</button></p>
+              <p><button type="button" id="previous-episode">Previous Episode</button> <button type="button"
+                  id="skip-back">Back 15 Seconds</button></p>
+              <p><button type="button" id="skip-forward">Forward 30 Seconds</button> <button type="button"
+                  id="next-episode">Next Episode</button></p>
             </div>
             <div>
               <p><strong>Playback speed</strong></p>
@@ -97,7 +108,8 @@
               </select>
             </div>
             <audio id="audio-player" controls preload="metadata" aria-label="Podcast audio player"></audio>
-            <video id="video-player" controls preload="metadata" playsinline hidden width="480" aria-label="Podcast video player"></video>
+            <video id="video-player" controls preload="metadata" playsinline hidden width="480"
+              aria-label="Podcast video player"></video>
             <p id="player-status" role="status" aria-live="polite">The player is ready.</p>
           </div>
         </div>
@@ -143,13 +155,15 @@
       <div>
         <p><strong>Podcast subscriptions</strong></p>
         <p><button type="button" id="export-opml">Export Subscriptions as OPML</button></p>
-        <p><label for="import-opml">Import OPML file</label> <input id="import-opml" type="file" accept=".opml,.xml,text/xml,application/xml"></p>
+        <p><label for="import-opml">Import OPML file</label> <input id="import-opml" type="file"
+            accept=".opml,.xml,text/xml,application/xml"></p>
         <p id="opml-status" role="status" aria-live="polite"></p>
       </div>
       <div>
         <p><strong>Complete app backup</strong></p>
         <p><button type="button" id="export-backup">Download JSON Backup</button></p>
-        <p><label for="import-backup">Restore or merge JSON backup</label> <input id="import-backup" type="file" accept=".json,application/json"></p>
+        <p><label for="import-backup">Restore or merge JSON backup</label> <input id="import-backup" type="file"
+            accept=".json,application/json"></p>
         <p><label><input type="checkbox" id="replace-backup"> Replace current data instead of merging</label></p>
         <p id="backup-status" role="status" aria-live="polite"></p>
       </div>
@@ -169,7 +183,10 @@
 
   <footer>
     <hr>
-    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted search service. Episode lists come from the public RSS or Atom feed of the show you open. Library dates reflect the last successful check; opening the library does not refresh feeds. Listening status, subscriptions, queues, and backups are stored in this browser.</p>
+    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted
+      search service. Episode lists come from the public RSS or Atom feed of the show you open. Library dates reflect
+      the last successful check; opening the library does not refresh feeds. Listening status, subscriptions, queues,
+      and backups are stored in this browser.</p>
   </footer>
 
   <script>
@@ -224,7 +241,7 @@
       playbackSpeed: document.getElementById("playback-speed"),
       audioElement: document.getElementById("audio-player"),
       video: document.getElementById("video-player"),
-      get audio() { return activeMedia; },
+      get audio() {return activeMedia;},
       playerStatus: document.getElementById("player-status"),
       favoritesEmpty: document.getElementById("favorites-empty"),
       favoritesList: document.getElementById("favorites-list"),
@@ -307,7 +324,7 @@
           const episode = normalizeEpisode(item);
           if (!episode.id || historyIds.has(episode.id)) return null;
           historyIds.add(episode.id);
-          return { ...episode, playedAt: String(item.playedAt || "") };
+          return {...episode, playedAt: String(item.playedAt || "")};
         }).filter(Boolean).slice(0, MAX_HISTORY);
         const playedIds = Array.isArray(saved.playedEpisodeIds)
           ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(0, 5000)
@@ -558,7 +575,7 @@
       image.referrerPolicy = "no-referrer";
       image.addEventListener("load", () => {
         if (image.naturalWidth > 0 && image.naturalHeight > 0) image.height = Math.max(1, Math.round(image.width * image.naturalHeight / image.naturalWidth));
-      }, { once: true });
+      }, {once: true});
       image.src = safeUrl;
       return image;
     }
@@ -670,7 +687,7 @@
       if (!allEntries.length && !["rss", "feed", "rdf"].includes(rootName)) {
         throw new Error("The document is valid XML, but it is not an RSS or Atom podcast feed.");
       }
-      return { documentXml, entries: allEntries };
+      return {documentXml, entries: allEntries};
     }
 
     // Trims a partially downloaded feed back to its last complete episode and closes
@@ -701,7 +718,7 @@
           mode: "cors",
           credentials: "omit",
           redirect: "follow",
-          headers: { "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" },
+          headers: {"Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"},
           signal: controller.signal
         });
         if (!response.ok) {
@@ -748,14 +765,14 @@
             truncated = true;
           }
         }
-        return truncated ? { text: truncateFeedText(text), truncated: true } : { text, truncated: false };
+        return truncated ? {text: truncateFeedText(text), truncated: true} : {text, truncated: false};
       } finally {
         clearTimeout(timeout);
       }
     }
 
     function recordDiagnostic(feedUrl, message, kind) {
-      const entry = { feedUrl: safeHttpUrl(feedUrl), message: String(message || "Unknown feed error"), kind: kind || "error", at: new Date().toISOString() };
+      const entry = {feedUrl: safeHttpUrl(feedUrl), message: String(message || "Unknown feed error"), kind: kind || "error", at: new Date().toISOString()};
       state.diagnostics = [entry, ...(state.diagnostics || [])].slice(0, 100);
       renderDiagnostics();
       saveState();
@@ -774,7 +791,7 @@
     async function retryTransient(operation, attempts) {
       let lastError;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
-        try { return await operation(); } catch (error) {
+        try {return await operation();} catch (error) {
           lastError = error;
           const message = String(error && error.message || "");
           const transient = /HTTP 408|HTTP 429|HTTP 5\d\d|timeout|network|failed to fetch|aborted/i.test(message);
@@ -791,14 +808,14 @@
       let directError = null;
       try {
         const direct = await fetchTextWithTimeout(url, 12000);
-        return { ...parseXmlDocument(direct.text), source: "direct", truncated: direct.truncated };
+        return {...parseXmlDocument(direct.text), source: "direct", truncated: direct.truncated};
       } catch (error) {
         directError = error;
       }
 
       try {
         const proxied = await fetchTextWithTimeout(RSS_PROXY_PREFIX + url, 35000);
-        return { ...parseXmlDocument(proxied.text), source: "proxy", truncated: proxied.truncated };
+        return {...parseXmlDocument(proxied.text), source: "proxy", truncated: proxied.truncated};
       } catch (proxyError) {
         const reason = proxyError && proxyError.message ? proxyError.message : "unknown error";
         const directReason = directError && directError.message ? directError.message : "direct feed request failed";
@@ -815,19 +832,19 @@
         const node = all[i];
         if (localName === "enclosure" || localName === "content") {
           const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || "", baseUrl);
-          if (url) candidates.push({ url, type: (node.getAttribute("type") || (String(node.getAttribute("medium") || "").toLowerCase() + "/unknown")).toLowerCase() });
+          if (url) candidates.push({url, type: (node.getAttribute("type") || (String(node.getAttribute("medium") || "").toLowerCase() + "/unknown")).toLowerCase()});
         }
         if (localName === "alternateenclosure") {
           const source = directChild(node, ["source"]);
           const url = safeHttpUrl(node.getAttribute("url") || (source && (source.getAttribute("uri") || source.getAttribute("url"))) || "", baseUrl);
-          if (url) candidates.push({ url, type: String(node.getAttribute("type") || "").toLowerCase() });
+          if (url) candidates.push({url, type: String(node.getAttribute("type") || "").toLowerCase()});
         }
         if (localName === "link" && String(node.getAttribute("rel") || "").toLowerCase() === "enclosure") {
           const url = safeHttpUrl(node.getAttribute("href") || "", baseUrl);
-          if (url) candidates.push({ url, type: (node.getAttribute("type") || (String(node.getAttribute("medium") || "").toLowerCase() + "/unknown")).toLowerCase() });
+          if (url) candidates.push({url, type: (node.getAttribute("type") || (String(node.getAttribute("medium") || "").toLowerCase() + "/unknown")).toLowerCase()});
         }
       }
-      if (!candidates.length) return { url: "", mediaType: "audio" };
+      if (!candidates.length) return {url: "", mediaType: "audio"};
       const classify = item => {
         const mime = item.type.split(";")[0].trim();
         if (mime.startsWith("video/")) return "video";
@@ -836,9 +853,9 @@
         if (/\.(mp3|m4a|m4b|aac|ogg|oga|opus|wav|flac)(?:$|[?#])/i.test(item.url)) return "audio";
         return "";
       };
-      const typed = candidates.map(item => ({ ...item, mediaType: classify(item) })).filter(item => item.mediaType);
+      const typed = candidates.map(item => ({...item, mediaType: classify(item)})).filter(item => item.mediaType);
       const selected = typed.find(item => item.mediaType === "video") || typed.find(item => item.mediaType === "audio");
-      return selected ? { url: selected.url, mediaType: selected.mediaType } : { url: "", mediaType: "audio" };
+      return selected ? {url: selected.url, mediaType: selected.mediaType} : {url: "", mediaType: "audio"};
     }
 
     function episodeDescriptionMarkup(entry) {
@@ -859,7 +876,7 @@
       const author = directTagText(channel, ["author", "creator", "managingEditor"]) || show.artist;
       const description = cleanHtmlToText(directTagText(channel, ["description", "subtitle", "summary"])) || show.description;
       const image = directFeedImage(channel) || show.artwork;
-      const actualShow = { ...show, title, artist: author, description, artwork: image };
+      const actualShow = {...show, title, artist: author, description, artwork: image};
       const entries = allByLocalName(documentXml, "item");
       const atomEntries = allByLocalName(documentXml, "entry");
       const sourceEntries = entries.length ? entries : atomEntries;
@@ -906,7 +923,7 @@
         });
       });
 
-      return { show: actualShow, episodes, source, truncated: Boolean(truncated) };
+      return {show: actualShow, episodes, source, truncated: Boolean(truncated)};
     }
 
     async function fetchAppleJson(url, timeoutMs) {
@@ -936,7 +953,7 @@
           script.onload = null;
           script.onerror = null;
           if (script.parentNode) script.parentNode.removeChild(script);
-          try { delete window[callbackName]; } catch (cleanupError) { window[callbackName] = undefined; }
+          try {delete window[callbackName];} catch (cleanupError) {window[callbackName] = undefined;}
           if (error) reject(error);
           else resolve(data);
         }
@@ -970,7 +987,7 @@
     }
 
     function cacheSearchResults(cache, cacheKey, results) {
-      cache.set(cacheKey, { savedAt: Date.now(), results });
+      cache.set(cacheKey, {savedAt: Date.now(), results});
       // Keep each in-memory cache bounded during long sessions.
       if (cache.size > 40) cache.delete(cache.keys().next().value);
       return results;
@@ -996,7 +1013,7 @@
       const data = await fetchAppleJson(APPLE_SEARCH_URL + "?" + params.toString());
       const results = data.results
         .filter(item => item && (item.kind === "podcast" || item.wrapperType === "track"))
-        .map(item => normalizeShow({ ...item, source: "apple" }))
+        .map(item => normalizeShow({...item, source: "apple"}))
         .filter(item => item.title && item.feedUrl);
       return cacheSearchResults(appleSearchCache, cacheKey, results);
     }
@@ -1009,7 +1026,7 @@
           method: "GET",
           mode: "cors",
           credentials: "omit",
-          headers: { "Accept": "application/json" },
+          headers: {"Accept": "application/json"},
           signal: controller.signal
         });
         if (!response.ok) throw new Error("HTTP " + response.status);
@@ -1037,7 +1054,7 @@
       }
       const results = data.feeds
         .filter(item => item && (item.url || item.originalUrl || item.feedUrl))
-        .map(item => normalizeShow({ ...item, source: "podcastindex" }))
+        .map(item => normalizeShow({...item, source: "podcastindex"}))
         .filter(item => item.title && item.feedUrl);
       return cacheSearchResults(podcastIndexSearchCache, cacheKey, results);
     }
@@ -1052,7 +1069,7 @@
         const key = feedKey || fallbackKey;
         const existing = merged.get(key);
         if (!existing) {
-          merged.set(key, { ...show, sources: [...(show.sources || [])] });
+          merged.set(key, {...show, sources: [...(show.sources || [])]});
           continue;
         }
         const sources = [...new Set([...(existing.sources || []), ...(show.sources || [])])];
@@ -1105,7 +1122,7 @@
     async function lookupAppleFeed(show) {
       if (show.feedUrl) return show.feedUrl;
       if (!show.appleId) return "";
-      const params = new URLSearchParams({ id: show.appleId, entity: "podcast", country: "us" });
+      const params = new URLSearchParams({id: show.appleId, entity: "podcast", country: "us"});
       const data = await fetchAppleJson(APPLE_LOOKUP_URL + "?" + params.toString());
       const result = Array.isArray(data.results) ? data.results.find(item => item.feedUrl) : null;
       return result ? safeHttpUrl(result.feedUrl) : "";
@@ -1133,14 +1150,14 @@
       const existingIndex = state.library.findIndex(item => item.id === normalized.id || (normalized.feedUrl && item.feedUrl === normalized.feedUrl));
       if (existingIndex >= 0) {
         const existing = state.library[existingIndex];
-        state.library[existingIndex] = { ...existing, ...normalized, id: existing.id };
+        state.library[existingIndex] = {...existing, ...normalized, id: existing.id};
       } else {
         state.library.push(normalized);
       }
       saveState();
-      
+
       renderLibrary();
-      
+
       elements.librarySection.open = true;
     }
 
@@ -1152,10 +1169,10 @@
         libraryPanels.delete(showId);
       }
       state.library = state.library.filter(show => show.id !== showId);
-      
+
       saveState();
       renderLibrary();
-      
+
     }
 
     function focusSearchPanel(panel) {
@@ -1219,7 +1236,7 @@
         viewButton: null
       };
       filter.addEventListener("input", () => renderEpisodes(panel));
-      refresh.addEventListener("click", () => openShow(panel.show, panel, { force: true }));
+      refresh.addEventListener("click", () => openShow(panel.show, panel, {force: true}));
       showPanels.add(panel);
       return panel;
     }
@@ -1315,7 +1332,7 @@
 
       card.append(makeActionGroup("Podcast actions", actions), panel.container);
       item.append(card, document.createElement("hr"));
-      return { item, panel };
+      return {item, panel};
     }
 
     function renderSearchResults(results) {
@@ -1399,7 +1416,7 @@
       try {
         const feedUrl = await lookupAppleFeed(normalized);
         if (!feedUrl) throw new Error("Apple did not provide an RSS feed URL for this show. Try adding its public feed address manually.");
-        panel.show = { ...normalized, feedUrl };
+        panel.show = {...normalized, feedUrl};
         const savedShow = state.library.find(item => item.id === normalized.id);
         if (savedShow && savedShow.feedUrl !== feedUrl) {
           savedShow.feedUrl = feedUrl;
@@ -1425,7 +1442,7 @@
         panel.show = result.show;
         panel.episodes = result.episodes;
         rememberLatestEpisode(panel.show, panel.episodes, latestFeedCacheTimestamps.get(feedUrl) || Date.now());
-        
+
         panel.loaded = true;
         renderShowDetails(panel.show, "", panel.details);
         renderEpisodes(panel);
@@ -1461,7 +1478,7 @@
       if (!value) return "Date unavailable";
       const parsed = new Date(value);
       if (Number.isNaN(parsed.getTime())) return value;
-      return parsed.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+      return parsed.toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"});
     }
 
     function formatDuration(value) {
@@ -1784,7 +1801,7 @@
 
     function updateProgress(episode, currentTime, duration) {
       if (!episode || episodeHasBeenPlayed(episode)) return;
-      const entry = { episode: persistableEpisode(episode), currentTime: Math.max(0, Number(currentTime) || 0), duration: Math.max(0, Number(duration) || 0), updatedAt: new Date().toISOString() };
+      const entry = {episode: persistableEpisode(episode), currentTime: Math.max(0, Number(currentTime) || 0), duration: Math.max(0, Number(duration) || 0), updatedAt: new Date().toISOString()};
       state.inProgress = (state.inProgress || []).filter(item => item.episode.id !== episode.id);
       if (entry.currentTime > 0) state.inProgress.unshift(entry);
       state.inProgress = state.inProgress.slice(0, 200);
@@ -1799,7 +1816,7 @@
         state.playedEpisodeIds = [...playedEpisodeIdSet];
         state.inProgress = (state.inProgress || []).filter(item => item.episode.id !== normalized.id);
         state.history = state.history.filter(item => item.id !== normalized.id);
-        state.history.unshift({ ...normalized, playedAt: new Date().toISOString() });
+        state.history.unshift({...normalized, playedAt: new Date().toISOString()});
         state.history = state.history.slice(0, MAX_HISTORY);
       } else {
         playedEpisodeIdSet.delete(normalized.id);
@@ -1807,7 +1824,7 @@
         state.history = state.history.filter(item => item.id !== normalized.id);
       }
       saveState();
-      renderHistory(); renderProgress();  renderNowPlaying();
+      renderHistory(); renderProgress(); renderNowPlaying();
       for (const panel of showPanels) if (panel.loaded) renderEpisodes(panel);
     }
 
@@ -1941,7 +1958,7 @@
         setStatus(elements.rssStatus, "Enter a valid http or https feed URL.", true);
         return;
       }
-      const show = normalizeShow({ feedUrl, title: "Podcast from RSS feed" });
+      const show = normalizeShow({feedUrl, title: "Podcast from RSS feed"});
       setStatus(elements.rssStatus, "Reading feed and adding the podcast…");
       try {
         const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
@@ -1957,7 +1974,7 @@
         if (panel) {
           panel.container.hidden = false;
           panel.viewButton.textContent = "Hide Episodes";
-          await openShow(parsed.show, panel, { prefetched: parsed });
+          await openShow(parsed.show, panel, {prefetched: parsed});
         }
         setStatus(elements.rssStatus, "Podcast added to your library.");
       } catch (error) {
@@ -1966,7 +1983,7 @@
     }
 
     function downloadBlob(name, content, type) {
-      const blob = new Blob([content], { type });
+      const blob = new Blob([content], {type});
       const url = URL.createObjectURL(blob);
       const link = makeElement("a", "Download"); link.href = url; link.download = name;
       document.body.append(link); link.click(); link.remove();
@@ -1974,7 +1991,7 @@
     }
 
     function exportOpml() {
-      const escapeXml = value => String(value || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+      const escapeXml = value => String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
       const outlines = state.library.map(show => '    <outline text="' + escapeXml(show.title) + '" title="' + escapeXml(show.title) + '" type="rss" xmlUrl="' + escapeXml(show.feedUrl) + '" htmlUrl="' + escapeXml(show.appleUrl) + '" />').join("\n");
       const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0"><head><title>Podcast Player Subscriptions</title></head><body>\n' + outlines + '\n</body></opml>';
       downloadBlob("podcast-subscriptions.opml", xml, "text/x-opml;charset=utf-8");
@@ -1985,20 +2002,20 @@
       const xml = new DOMParser().parseFromString(await readFileText(file, MAX_IMPORT_BYTES), "application/xml");
       if (xml.querySelector("parsererror") || !xml.documentElement || String(xml.documentElement.localName || xml.documentElement.nodeName).toLowerCase() !== "opml") throw new Error("The selected file is not valid OPML/XML.");
       const outlines = [...xml.getElementsByTagName("outline")];
-      const imported = outlines.map(node => ({ title: node.getAttribute("title") || node.getAttribute("text") || "Imported Podcast", feedUrl: node.getAttribute("xmlUrl") || node.getAttribute("url") || "", appleUrl: node.getAttribute("htmlUrl") || "", source: "OPML import" })).filter(show => safeHttpUrl(show.feedUrl));
+      const imported = outlines.map(node => ({title: node.getAttribute("title") || node.getAttribute("text") || "Imported Podcast", feedUrl: node.getAttribute("xmlUrl") || node.getAttribute("url") || "", appleUrl: node.getAttribute("htmlUrl") || "", source: "OPML import"})).filter(show => safeHttpUrl(show.feedUrl));
       if (!imported.length) throw new Error("No valid podcast RSS addresses were found in that OPML file.");
       let added = 0;
       for (const raw of imported) {
         const show = normalizeShow(raw);
-        if (!state.library.some(item => item.feedUrl === show.feedUrl || item.id === show.id)) { state.library.push(show); added += 1; }
+        if (!state.library.some(item => item.feedUrl === show.feedUrl || item.id === show.id)) {state.library.push(show); added += 1;}
       }
-      saveState(); renderLibrary();  elements.librarySection.open = true;
+      saveState(); renderLibrary(); elements.librarySection.open = true;
       setText(elements.opmlStatus, "Imported " + added + " new subscriptions. " + (imported.length - added) + " duplicates were skipped.");
     }
 
     function exportBackup() {
-      const payload = { app: "Podcast Player", schemaVersion: 2, exportedAt: new Date().toISOString(), data: state };
-      downloadBlob("podcast-player-backup-" + new Date().toISOString().slice(0,10) + ".json", JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
+      const payload = {app: "Podcast Player", schemaVersion: 2, exportedAt: new Date().toISOString(), data: state};
+      downloadBlob("podcast-player-backup-" + new Date().toISOString().slice(0, 10) + ".json", JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
       setText(elements.backupStatus, "Backup exported.");
     }
 
@@ -2028,13 +2045,13 @@
         const episode = persistableEpisode(normalizeEpisode(item));
         if (!episode.id || historyIds.has(episode.id)) return null;
         historyIds.add(episode.id);
-        return { ...episode, playedAt: String(item.playedAt || "") };
+        return {...episode, playedAt: String(item.playedAt || "")};
       }).filter(Boolean).slice(0, MAX_HISTORY);
       clean.inProgress = (raw.inProgress || []).map(item => {
         if (!item || typeof item !== "object" || Array.isArray(item) || !item.episode || typeof item.episode !== "object" || Array.isArray(item.episode) || typeof item.episode.id !== "string" || !item.episode.id.trim()) throw new Error("The backup contains an invalid listening-progress entry.");
         const currentTime = Number(item.currentTime), duration = Number(item.duration);
         if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) throw new Error("The backup contains invalid listening-progress times.");
-        return { episode: persistableEpisode(normalizeEpisode(item.episode)), currentTime, duration, updatedAt: String(item.updatedAt || "") };
+        return {episode: persistableEpisode(normalizeEpisode(item.episode)), currentTime, duration, updatedAt: String(item.updatedAt || "")};
       });
       if (raw.playedEpisodeIds != null && (!Array.isArray(raw.playedEpisodeIds) || raw.playedEpisodeIds.some(id => typeof id !== "string" || !id.trim()))) throw new Error("The backup contains invalid played-episode IDs.");
       clean.playedEpisodeIds = raw.playedEpisodeIds != null
@@ -2085,7 +2102,7 @@
           const existing = subscriptionsByFeed.get(show.feedUrl) || mergedLibrary.find(item => item.id === show.id);
           if (existing) {
             const index = mergedLibrary.indexOf(existing);
-            mergedLibrary[index] = { ...existing, ...show, id: existing.id };
+            mergedLibrary[index] = {...existing, ...show, id: existing.id};
           } else {
             mergedLibrary.push(show);
             if (show.feedUrl) subscriptionsByFeed.set(show.feedUrl, show);
@@ -2101,15 +2118,15 @@
         state.inProgress = [...progressByEpisode.values()].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)).slice(0, 200);
         state.playedEpisodeIds = [...new Set([...(state.playedEpisodeIds || []), ...incoming.playedEpisodeIds])];
         state.diagnostics = [...(state.diagnostics || []), ...incoming.diagnostics].slice(-100);
-        if (!state.currentEpisode && incoming.currentEpisode) { state.currentEpisode = incoming.currentEpisode; state.currentTime = incoming.currentTime; }
+        if (!state.currentEpisode && incoming.currentEpisode) {state.currentEpisode = incoming.currentEpisode; state.currentTime = incoming.currentTime;}
       }
       playedEpisodeIdSet.clear();
       for (const id of state.playedEpisodeIds || []) playedEpisodeIdSet.add(id);
-      saveState(); renderLibrary(); renderQueue(); renderFavorites(); renderHistory(); renderProgress();  renderDiagnostics(); restorePlayer();
+      saveState(); renderLibrary(); renderQueue(); renderFavorites(); renderHistory(); renderProgress(); renderDiagnostics(); restorePlayer();
       setText(elements.backupStatus, elements.replaceBackup.checked ? "Backup restored, replacing current data." : "Backup merged with current data. Existing items were retained and duplicates combined.");
     }
 
-        function removePlayedFromQueue() {
+    function removePlayedFromQueue() {
       const before = state.queue.length;
       state.queue = state.queue.filter(episode => !episodeHasBeenPlayed(episode));
       currentQueueIndex = state.currentEpisode ? state.queue.findIndex(item => item.id === state.currentEpisode.id) : -1;
@@ -2118,7 +2135,7 @@
 
 
     function persistSectionStates() {
-      document.querySelectorAll("main details[id]").forEach(section => { state.expandedSections[section.id] = section.open; });
+      document.querySelectorAll("main details[id]").forEach(section => {state.expandedSections[section.id] = section.open;});
       saveState();
     }
 
@@ -2246,22 +2263,22 @@
     elements.libraryFilter.addEventListener("input", renderLibrary);
     elements.clearCompletedQueue.addEventListener("click", removePlayedFromQueue);
     elements.exportOpml.addEventListener("click", exportOpml);
-    elements.importOpml.addEventListener("change", async () => { const file = elements.importOpml.files[0]; if (!file) return; try { await importOpmlFile(file); } catch (error) { setText(elements.opmlStatus, error.message || "OPML import failed."); } finally { elements.importOpml.value = ""; } });
+    elements.importOpml.addEventListener("change", async () => {const file = elements.importOpml.files[0]; if (!file) return; try {await importOpmlFile(file);} catch (error) {setText(elements.opmlStatus, error.message || "OPML import failed.");} finally {elements.importOpml.value = "";} });
     elements.exportBackup.addEventListener("click", exportBackup);
-    elements.importBackup.addEventListener("change", async () => { const file = elements.importBackup.files[0]; if (!file) return; try { await importBackupFile(file); } catch (error) { setText(elements.backupStatus, error.message || "Backup import failed."); } finally { elements.importBackup.value = ""; } });
-    elements.clearDiagnostics.addEventListener("click", () => { state.diagnostics = []; saveState(); renderDiagnostics(); });
-    document.querySelectorAll("main details[id]").forEach(section => { section.addEventListener("toggle", persistSectionStates); });
+    elements.importBackup.addEventListener("change", async () => {const file = elements.importBackup.files[0]; if (!file) return; try {await importBackupFile(file);} catch (error) {setText(elements.backupStatus, error.message || "Backup import failed.");} finally {elements.importBackup.value = "";} });
+    elements.clearDiagnostics.addEventListener("click", () => {state.diagnostics = []; saveState(); renderDiagnostics();});
+    document.querySelectorAll("main details[id]").forEach(section => {section.addEventListener("toggle", persistSectionStates);});
     document.addEventListener("keydown", event => {
       if (event.target && event.target.closest("input, textarea, select, button, a, summary, audio, video, [contenteditable=true], [role=button], [role=link]")) return;
-      if (event.code === "Space" && state.currentEpisode) { event.preventDefault(); if (elements.audio.paused) elements.audio.play().catch(() => {}); else elements.audio.pause(); }
-      if (event.altKey && event.key === "ArrowRight") { event.preventDefault(); elements.audio.currentTime = Math.min(elements.audio.duration || Infinity, elements.audio.currentTime + 30); }
-      if (event.altKey && event.key === "ArrowLeft") { event.preventDefault(); elements.audio.currentTime = Math.max(0, elements.audio.currentTime - 15); }
-      if (event.altKey && event.key.toLowerCase() === "n") { event.preventDefault(); playNextInQueue(); }
+      if (event.code === "Space" && state.currentEpisode) {event.preventDefault(); if (elements.audio.paused) elements.audio.play().catch(() => { }); else elements.audio.pause();}
+      if (event.altKey && event.key === "ArrowRight") {event.preventDefault(); elements.audio.currentTime = Math.min(elements.audio.duration || Infinity, elements.audio.currentTime + 30);}
+      if (event.altKey && event.key === "ArrowLeft") {event.preventDefault(); elements.audio.currentTime = Math.max(0, elements.audio.currentTime - 15);}
+      if (event.altKey && event.key.toLowerCase() === "n") {event.preventDefault(); playNextInQueue();}
     });
 
-    document.querySelectorAll("main details[id]").forEach(section => { if (Object.prototype.hasOwnProperty.call(state.expandedSections, section.id)) section.open = Boolean(state.expandedSections[section.id]); });
+    document.querySelectorAll("main details[id]").forEach(section => {if (Object.prototype.hasOwnProperty.call(state.expandedSections, section.id)) section.open = Boolean(state.expandedSections[section.id]);});
     renderLibrary();
-    
+
     renderQueue();
     renderFavorites();
     renderHistory();
@@ -2271,4 +2288,5 @@
     placePlayerUnderEpisode();
   </script>
 </body>
+
 </html>
