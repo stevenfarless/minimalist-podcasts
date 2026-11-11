@@ -295,23 +295,22 @@ test("keeps listening timestamps attached to their episodes when duplicate histo
 
 test("rejects oversized feed responses before parsing their XML", async ({ page }) => {
   const oversizedUrl = "https://feeds.example.test/oversized.xml";
-  const tooLargeHeaders = {
-    "access-control-allow-origin": "*",
-    "content-length": String(5 * 1024 * 1024 + 1)
-  };
+  const oversizedBody = " ".repeat(5 * 1024 * 1024 + 1);
   await page.route(oversizedUrl, route => route.fulfill({
     status: 200,
     contentType: "application/xml",
-    headers: tooLargeHeaders,
-    body: "<rss><channel><title>Too Large</title></channel></rss>"
+    headers: { "access-control-allow-origin": "*" },
+    body: oversizedBody
   }));
   await page.route("https://proxy.cors.dev/**", route => route.fulfill({
     status: 200,
     contentType: "application/xml",
-    headers: tooLargeHeaders,
-    body: "<rss><channel><title>Too Large</title></channel></rss>"
+    headers: { "access-control-allow-origin": "*" },
+    body: oversizedBody
   }));
-  await addFeed(page, oversizedUrl, "<rss/>");
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(oversizedUrl);
+  await page.getByRole("button", { name: "Add Feed" }).click();
   await expect(page.locator("#rss-status")).toContainText("5 MB size limit");
   await expect(page.locator("#library-list")).not.toContainText("Too Large");
 });
