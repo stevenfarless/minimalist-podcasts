@@ -270,11 +270,11 @@ test("keeps listening timestamps attached to their episodes when duplicate histo
     audioUrl: "https://media.example.test/unique.mp3",
     date: "2026-11-10T12:00:00Z"
   };
-  await page.addInitScript(([key, value]) => {
-    if (!sessionStorage.getItem("history-seeded")) {
-      sessionStorage.setItem("history-seeded", "1");
-      localStorage.setItem(key, value);
-    }
+  await page.evaluate(([key, value]) => {
+    // Prevent the already-loaded empty app from saving over the test fixture
+    // while the page reloads with the seeded history.
+    window.addEventListener("pagehide", event => event.stopImmediatePropagation(), true);
+    localStorage.setItem(key, value);
   }, [STORAGE_KEY, JSON.stringify({
     history: [
       { ...episode, playedAt: "2026-11-10T01:00:00Z" },
@@ -282,7 +282,7 @@ test("keeps listening timestamps attached to their episodes when duplicate histo
       { ...uniqueEpisode, playedAt: "2026-11-10T03:00:00Z" }
     ]
   })]);
-  await page.goto("/");
+  await page.reload();
   await openSection(page, "history-section");
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.history).toHaveLength(2);
@@ -348,7 +348,10 @@ test("merges a backup while preserving existing subscriptions and adding missing
       audioUrl: "https://media.example.test/backup.mp3"
     }],
     favorites: [],
-    history: [],
+    history: [
+      { id: "backup-history", title: "Backup History", showTitle: "Backup-Only Podcast", audioUrl: "https://media.example.test/history.mp3", playedAt: "2026-11-10T04:00:00Z" },
+      { id: "backup-history", title: "Duplicate Backup History", showTitle: "Backup-Only Podcast", audioUrl: "https://media.example.test/history.mp3", playedAt: "2026-11-10T05:00:00Z" }
+    ],
     inProgress: []
   };
   await page.locator("#import-backup").setInputFiles({
@@ -362,6 +365,8 @@ test("merges a backup while preserving existing subscriptions and adding missing
   expect(saved.library.filter(show => show.feedUrl === RSS_URL)).toHaveLength(1);
   expect(saved.library.some(show => show.feedUrl === "https://backup.example.test/feed.xml")).toBe(true);
   expect(saved.queue.map(item => item.id)).toContain("backup-queue-episode");
+  expect(saved.history.filter(item => item.id === "backup-history")).toHaveLength(1);
+  expect(saved.history.find(item => item.id === "backup-history").playedAt).toBe("2026-11-10T04:00:00Z");
 });
 
 test("replaces existing browser data when the backup replacement option is selected", async ({ page }) => {
