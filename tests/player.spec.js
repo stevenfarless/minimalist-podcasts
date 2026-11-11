@@ -11,6 +11,12 @@ const RSS = `<?xml version="1.0" encoding="UTF-8"?>
     <item><guid>episode-two</guid><title>Episode Two</title><pubDate>Tue, 10 Nov 2026 12:00:00 GMT</pubDate><enclosure url="https://media.example.test/two.mp3" type="audio/mpeg" length="1000"/><description>Second episode</description></item>
   </channel>
 </rss>`;
+const RDF_URL = "https://feeds.example.test/rdf.xml";
+const RDF = `<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:enc="http://purl.org/rss/1.0/modules/content/">
+  <channel rdf:about="https://feeds.example.test/rdf.xml"><title>RDF Podcast</title></channel>
+  <item rdf:about="https://feeds.example.test/item"><title>RDF Episode</title><enc:content url="https://media.example.test/cover.jpg" type="image/jpeg"/><enc:content url="https://media.example.test/audio.ogg" type="audio/ogg"/></item>
+</rdf:RDF>`;
 const ATOM_URL = "https://feeds.example.test/atom.xml";
 const ATOM = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -94,6 +100,14 @@ test("imports RSS, renders episodes, and supports queue, favorites, and played s
   expect(saved.playedEpisodeIds).toContain(saved.queue[0].id);
 });
 
+test("parses RSS 1.0 RDF feeds and selects audio over non-audio enclosures", async ({ page }) => {
+  await addFeed(page, RDF_URL, RDF);
+  await expect(page.locator("#library-list")).toContainText("RDF Podcast");
+  await expect(page.locator("#library-list")).toContainText("RDF Episode");
+  const episode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "RDF Episode" });
+  await expect(episode).toHaveAttribute("data-audio-url", "https://media.example.test/audio.ogg");
+});
+
 test("parses Atom enclosure links and resolves relative audio URLs", async ({ page }) => {
   await addFeed(page, ATOM_URL, ATOM);
   await expect(page.locator("#library-list")).toContainText("Atom Regression Podcast");
@@ -136,6 +150,21 @@ test("ignores stale media error and ended events after switching episodes", asyn
   const savedAfterCurrentEnded = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(savedAfterCurrentEnded.history).toHaveLength(1);
   expect(savedAfterCurrentEnded.history[0].title).toBe("Episode Two");
+});
+
+test("imports valid OPML through the FileReader fallback", async ({ page }) => {
+  await page.evaluate(() => {
+    Object.defineProperty(Blob.prototype, "text", { configurable: true, value: undefined });
+  });
+  await page.locator("#import-opml").setInputFiles({
+    name: "subscriptions.opml",
+    mimeType: "text/xml",
+    buffer: Buffer.from('<?xml version="1.0"?><opml version="2.0"><head><title>Test</title></head><body><outline text="Imported Show" xmlUrl="https://opml.example.test/feed.xml"/></body></opml>')
+  });
+  await expect(page.locator("#library-list")).toContainText("Imported Show");
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library).toHaveLength(1);
+  expect(saved.library[0].feedUrl).toBe("https://opml.example.test/feed.xml");
 });
 
 test("rejects non-OPML XML and leaves the subscription library unchanged", async ({ page }) => {
