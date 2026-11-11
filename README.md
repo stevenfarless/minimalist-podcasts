@@ -60,7 +60,7 @@ OPML contains subscription addresses and titles. JSON backups contain the app's 
 
 ## Design
 
-The deliberately plain interface uses native HTML elements such as `details`, `summary`, `form`, `button`, `input`, `progress`, `audio`, `article`, and `div`. Input widths use browser defaults so they can fit narrow screens without a stylesheet. There is no CSS, framework, dependency, or build process. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file. Layout uses ordinary document flow rather than tables or a styling framework.
+The deliberately plain interface uses native HTML elements such as `details`, `summary`, `form`, `button`, `input`, `progress`, `audio`, `article`, and `div`. Input widths use browser defaults so they can fit narrow screens without a stylesheet. There is no CSS, application framework, runtime dependency, or build process. Playwright is used only for development and automated browser tests. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file. Layout uses ordinary document flow rather than tables or a styling framework.
 
 The project favors browser-provided controls and straightforward JavaScript. Application logic is required for catalogue searches, feed retrieval, playback management, and local persistence; the browser handles the native interface wherever practical.
 
@@ -68,7 +68,7 @@ The project favors browser-provided controls and straightforward JavaScript. App
 
 The intended targets are current versions of Chrome, Firefox, Safari, Edge, and their mobile counterparts, plus reasonably recent releases. The project does not promise compatibility with Internet Explorer or obsolete browser engines. Older browsers may display the page while lacking support for particular features such as media playback, file handling, or modern network security.
 
-The app uses modern JavaScript and browser APIs. It is not designed around an ES5-only compatibility baseline. Kindle and other e-ink browsers are experimental targets, with functionality dependent on the device's browser, network support, and audio capabilities. No exhaustive cross-browser test suite has been completed.
+The app uses modern JavaScript and browser APIs. It is not designed around an ES5-only compatibility baseline. Kindle and other e-ink browsers are experimental targets, with functionality dependent on the device's browser, network support, and audio capabilities. A Playwright regression suite runs against Chromium, Firefox, and WebKit. This covers those browser engines at the tested versions; it does not establish compatibility with every browser or device.
 
 ## Limitations
 
@@ -78,7 +78,7 @@ Feed diagnostics can help identify failed requests. A failed refresh retains the
 
 ## Development
 
-- Application version: `2.0.2`
+- Application version: `2.0.3`
 - Storage schema: `2`
 - Main application: `index.html`
 - Language: HTML and vanilla JavaScript
@@ -89,15 +89,15 @@ See [CHANGELOG.md](CHANGELOG.md) for project changes.
 
 ## Tests
 
-Run the browser regression suite with Node.js 20 or later:
+Run the browser regression suite with Node.js 22 or later:
 
 ```sh
-npm install
+npm ci
 npx playwright install chromium firefox webkit
 npm test
 ```
 
-The Playwright suite launches the app in Chromium, Firefox, and WebKit and tests malformed local storage recovery, RSS and Atom feed loading, queue and episode state changes, stale playback events, and invalid OPML/backup handling. GitHub Actions runs the same suite on pushes and pull requests. These tests provide repeatable Chromium coverage; they do not establish compatibility with every browser, podcast host, or audio codec.
+The Playwright suite runs in Chromium, Firefox, and WebKit. It covers malformed local storage, RSS/RDF/Atom parsing, queue and episode state, stale media events and playback promises, listening-history normalization, feed response limits, OPML import and duplicate handling, and JSON backup validation, merging, replacement, and file-size limits. GitHub Actions runs the same suite on pushes and pull requests. These tests exercise application logic with controlled feed and media fixtures; they do not verify real-world audio decoding or guarantee compatibility with every podcast host, browser version, or codec.
 
 ## License
 
