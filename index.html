@@ -1349,17 +1349,17 @@
         updateProgress(state.currentEpisode, elements.audio.currentTime, elements.audio.duration);
       }
       currentQueueIndex = index;
+      elements.audio.pause();
       state.currentEpisode = normalized;
       state.currentTime = Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0 ? Number(resumeAt) : 0;
       state.playbackRate = Number(elements.playbackSpeed.value) || 1;
       const generation = ++playbackGeneration;
-      elements.audio.pause();
       if (resumeAt !== undefined && Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0) {
         const seekOnMetadata = () => {
+          elements.audio.removeEventListener("loadedmetadata", seekOnMetadata);
           if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) return;
           const duration = elements.audio.duration;
           if (Number.isFinite(duration) && duration > 0) elements.audio.currentTime = Math.min(Number(resumeAt), Math.max(0, duration - 1));
-          elements.audio.removeEventListener("loadedmetadata", seekOnMetadata);
         };
         elements.audio.addEventListener("loadedmetadata", seekOnMetadata);
       }
@@ -1824,7 +1824,7 @@
       });
       clean.queue = normalizeEpisodes(raw.queue, "queue");
       clean.favorites = normalizeEpisodes(raw.favorites, "favorites");
-      clean.history = normalizeEpisodes(raw.history, "history").map((episode, index) => ({ ...episode, playedAt: String(raw.history[index].playedAt || "") }));
+      clean.history = normalizeEpisodes(raw.history, "history").map((episode, index) => ({ ...episode, playedAt: String((raw.history || [])[index].playedAt || "") }));
       clean.inProgress = (raw.inProgress || []).map(item => {
         if (!item || typeof item !== "object" || !item.episode || typeof item.episode !== "object") throw new Error("The backup contains an invalid listening-progress entry.");
         const currentTime = Number(item.currentTime), duration = Number(item.duration);
@@ -1866,7 +1866,19 @@
           for (const item of extra || []) if (item && item.id && !map.has(item.id)) map.set(item.id, item);
           return [...map.values()];
         };
-        state.library = mergeById(state.library, incoming.library);
+        const subscriptionsByFeed = new Map((state.library || []).filter(item => item.feedUrl).map(item => [item.feedUrl, item]));
+        const mergedLibrary = [...(state.library || [])];
+        for (const show of incoming.library) {
+          const existing = subscriptionsByFeed.get(show.feedUrl) || mergedLibrary.find(item => item.id === show.id);
+          if (existing) {
+            const index = mergedLibrary.indexOf(existing);
+            mergedLibrary[index] = { ...existing, ...show, id: existing.id };
+          } else {
+            mergedLibrary.push(show);
+            if (show.feedUrl) subscriptionsByFeed.set(show.feedUrl, show);
+          }
+        }
+        state.library = mergedLibrary;
         for (const key of ["queue", "favorites", "history"]) state[key] = mergeById(state[key], incoming[key]);
         const progressByEpisode = new Map((state.inProgress || []).map(item => [item.episode.id, item]));
         for (const item of incoming.inProgress) {
@@ -1917,9 +1929,9 @@
         currentQueueIndex = state.queue.findIndex(item => item.id === state.currentEpisode.id);
         const episodeId = state.currentEpisode.id, resumeAt = Number(state.currentTime) || 0;
         const restorePosition = () => {
+          elements.audio.removeEventListener("loadedmetadata", restorePosition);
           if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== episodeId) return;
           if (Number.isFinite(elements.audio.duration) && elements.audio.duration > 0 && resumeAt > 0 && resumeAt < elements.audio.duration) elements.audio.currentTime = resumeAt;
-          elements.audio.removeEventListener("loadedmetadata", restorePosition);
         };
         elements.audio.addEventListener("loadedmetadata", restorePosition);
         elements.audio.src = state.currentEpisode.audioUrl;
