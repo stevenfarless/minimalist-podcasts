@@ -18,6 +18,8 @@ The project began as a small, 100% AI-assisted vibe-coding experiment. It grew i
 - Import and export subscriptions using OPML.
 - Export and restore complete JSON backups, either merging with current data or replacing it.
 - Refresh feeds with up to three concurrent requests, retry temporary failures, retain previously loaded data when a refresh fails, and inspect feed diagnostics.
+- Preserve loaded episodes, episode filters, and expanded episode state while filtering the subscription library.
+- Bound the in-memory feed cache and avoid redundant local-storage writes; playback progress is saved periodically and when the page is closed.
 - Remember which main sections were expanded.
 - Use keyboard shortcuts during playback.
 
@@ -58,7 +60,7 @@ OPML contains subscription addresses and titles. JSON backups contain the app's 
 
 ## Design
 
-The deliberately plain interface uses native HTML elements such as `details`, `summary`, `form`, `button`, `input`, `progress`, and `audio`. There is no CSS, framework, dependency, or build process. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file. Layout uses ordinary document flow rather than tables or a styling framework.
+The deliberately plain interface uses native HTML elements such as `details`, `summary`, `form`, `button`, `input`, `progress`, `audio`, `article`, and `div`. Input widths use browser defaults so they can fit narrow screens without a stylesheet. There is no CSS, framework, dependency, or build process. The JavaScript remains embedded in the HTML file so the app can be downloaded and run as a single file. Layout uses ordinary document flow rather than tables or a styling framework.
 
 The project favors browser-provided controls and straightforward JavaScript. Application logic is required for catalogue searches, feed retrieval, playback management, and local persistence; the browser handles the native interface wherever practical.
 
@@ -76,7 +78,7 @@ Feed diagnostics can help identify failed requests. A failed refresh retains the
 
 ## Development
 
-- Application version: `2.0.0`
+- Application version: `2.0.1`
 - Storage schema: `2`
 - Main application: `index.html`
 - Language: HTML and vanilla JavaScript
