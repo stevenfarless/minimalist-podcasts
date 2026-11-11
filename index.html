@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A simple browser-based podcast player. Search podcasts, read RSS feeds, build a queue, and stream episodes.">
   <title>Podcast Player</title>
-  <meta name="application-version" content="2.0.1">
+  <meta name="application-version" content="2.0.2">
 </head>
 <body>
   <header>
@@ -313,9 +313,10 @@
         }
         const queue = normalizeStoredEpisodes(saved.queue, 1000).filter(item => item.audioUrl);
         const favorites = normalizeStoredEpisodes(saved.favorites, 1000);
-        const history = normalizeStoredEpisodes(saved.history, MAX_HISTORY).map((episode, index) => ({
+        const historyItems = (Array.isArray(saved.history) ? saved.history : []).filter(isRecord);
+        const history = normalizeStoredEpisodes(historyItems, MAX_HISTORY).map((episode, index) => ({
           ...episode,
-          playedAt: String(saved.history.filter(isRecord)[index] && saved.history.filter(isRecord)[index].playedAt || "")
+          playedAt: String(historyItems[index] && historyItems[index].playedAt || "")
         }));
         const playedIds = Array.isArray(saved.playedEpisodeIds)
           ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(0, 5000)
