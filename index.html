@@ -511,6 +511,39 @@
       return node ? String(node.textContent || "").trim() : "";
     }
 
+    function directChild(parent, names) {
+      if (!parent) return null;
+      const wanted = new Set(names.map(name => name.toLowerCase()));
+      const children = parent.children || parent.childNodes || [];
+      for (let i = 0; i < children.length; i += 1) {
+        const node = children[i];
+        if (node.nodeType === 1 || node.localName) {
+          const name = String(node.localName || node.nodeName.split(":").pop()).toLowerCase();
+          if (wanted.has(name)) return node;
+        }
+      }
+      return null;
+    }
+
+    function directTagText(parent, names) {
+      const node = directChild(parent, names);
+      return node ? String(node.textContent || "").trim() : "";
+    }
+
+    function directFeedImage(parent) {
+      const image = directChild(parent, ["image"]);
+      if (image) {
+        const href = image.getAttribute("href") || image.getAttribute("url");
+        if (safeHttpUrl(href)) return safeHttpUrl(href);
+        const nestedUrl = directTagText(image, ["url"]);
+        if (safeHttpUrl(nestedUrl)) return safeHttpUrl(nestedUrl);
+      }
+      const logo = directTagText(parent, ["logo"]);
+      if (safeHttpUrl(logo)) return safeHttpUrl(logo);
+      const thumbnail = directChild(parent, ["thumbnail"]);
+      return thumbnail ? safeHttpUrl(thumbnail.getAttribute("url") || "") : "";
+    }
+
     function attributeFromImage(parent) {
       const imageNodes = allByLocalName(parent, "image");
       for (const node of imageNodes) {
@@ -665,10 +698,10 @@
     function parseFeed(documentXml, show, source) {
       const root = documentXml.documentElement;
       const channel = allByLocalName(documentXml, "channel")[0] || root;
-      const title = tagText(channel, ["title"]) || show.title;
-      const author = tagText(channel, ["author", "creator", "managingEditor"]) || show.artist;
-      const description = cleanHtmlToText(tagText(channel, ["description", "subtitle", "summary"])) || show.description;
-      const image = attributeFromImage(channel) || show.artwork;
+      const title = directTagText(channel, ["title"]) || show.title;
+      const author = directTagText(channel, ["author", "creator", "managingEditor"]) || show.artist;
+      const description = cleanHtmlToText(directTagText(channel, ["description", "subtitle", "summary"])) || show.description;
+      const image = directFeedImage(channel) || show.artwork;
       const actualShow = { ...show, title, artist: author, description, artwork: image };
       const entries = allByLocalName(documentXml, "item");
       const atomEntries = allByLocalName(documentXml, "entry");
@@ -679,7 +712,8 @@
         const date = tagText(entry, ["pubDate", "published", "updated", "date"]);
         const guid = tagText(entry, ["guid", "id"]);
         const audioUrl = extractEpisodeAudio(entry, show.feedUrl);
-        const enclosureNodes = allByLocalName(entry, "enclosure").concat(allByLocalName(entry, "content"));
+        const enclosureLinks = allByLocalName(entry, "link").filter(node => String(node.getAttribute("rel") || "").toLowerCase() === "enclosure");
+        const enclosureNodes = allByLocalName(entry, "enclosure").concat(allByLocalName(entry, "content"), enclosureLinks);
         const enclosure = enclosureNodes.find(node => {
           const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || "", show.feedUrl);
           return url && url === audioUrl;
