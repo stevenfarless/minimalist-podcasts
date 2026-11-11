@@ -24,6 +24,28 @@ const ATOM = `<?xml version="1.0" encoding="UTF-8"?>
   <entry><id>tag:example.test,2026:atom-one</id><title>Atom Episode</title><published>2026-11-10T12:00:00Z</published><link rel="enclosure" type="audio/mpeg" href="../media/atom.mp3"/><summary>Atom summary</summary></entry>
 </feed>`;
 
+const HISTORY_EPISODE = {
+  id: "history-duplicate",
+  title: "Duplicate History Episode",
+  showTitle: "History Test",
+  audioUrl: "https://media.example.test/history.mp3",
+  date: "2026-11-10T12:00:00Z"
+};
+const UNIQUE_HISTORY_EPISODE = {
+  id: "history-unique",
+  title: "Unique History Episode",
+  showTitle: "History Test",
+  audioUrl: "https://media.example.test/unique.mp3",
+  date: "2026-11-10T12:00:00Z"
+};
+const HISTORY_FIXTURE = {
+  history: [
+    { ...HISTORY_EPISODE, playedAt: "2026-11-10T01:00:00Z" },
+    { ...HISTORY_EPISODE, playedAt: "2026-11-10T02:00:00Z" },
+    { ...UNIQUE_HISTORY_EPISODE, playedAt: "2026-11-10T03:00:00Z" }
+  ]
+};
+
 async function mockMedia(page) {
   await page.addInitScript(() => {
     // The fixtures use unresolvable *.example.test media hosts. Record the source
@@ -73,8 +95,11 @@ async function addFeed(page, url, body) {
   await page.getByRole("button", { name: "Add Feed" }).click();
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   await mockMedia(page);
+  if (testInfo.title === "keeps listening timestamps attached to their episodes when duplicate history IDs are removed") {
+    await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(HISTORY_FIXTURE)]);
+  }
   await page.goto("/");
 });
 
@@ -256,35 +281,9 @@ test("ignores a delayed play rejection from an episode that is no longer selecte
 });
 
 test("keeps listening timestamps attached to their episodes when duplicate history IDs are removed", async ({ page }) => {
-  const episode = {
-    id: "history-duplicate",
-    title: "Duplicate History Episode",
-    showTitle: "History Test",
-    audioUrl: "https://media.example.test/history.mp3",
-    date: "2026-11-10T12:00:00Z"
-  };
-  const uniqueEpisode = {
-    id: "history-unique",
-    title: "Unique History Episode",
-    showTitle: "History Test",
-    audioUrl: "https://media.example.test/unique.mp3",
-    date: "2026-11-10T12:00:00Z"
-  };
-  await page.evaluate(([key, value]) => {
-    // Prevent the already-loaded empty app from saving over the test fixture
-    // while the page reloads with the seeded history.
-    window.addEventListener("pagehide", event => event.stopImmediatePropagation(), true);
-    localStorage.setItem(key, value);
-  }, [STORAGE_KEY, JSON.stringify({
-    history: [
-      { ...episode, playedAt: "2026-11-10T01:00:00Z" },
-      { ...episode, playedAt: "2026-11-10T02:00:00Z" },
-      { ...uniqueEpisode, playedAt: "2026-11-10T03:00:00Z" }
-    ]
-  })]);
-  await page.reload();
-  // Trigger the app's normal persistence handler explicitly so the assertion
-  // does not depend on whether the browser restored the disclosure's open state.
+  await openSection(page, "history-section");
+  // Trigger persistence explicitly so the test does not depend on the timing
+  // of the native details toggle event.
   await page.evaluate(() => {
     document.querySelector("#history-section").dispatchEvent(new Event("toggle"));
   });
