@@ -819,11 +819,16 @@
         const node = all[i];
         if (localName === "enclosure" || localName === "content") {
           const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || "", baseUrl);
-          if (url) candidates.push({ url, type: (node.getAttribute("type") || (node.getAttribute("medium") === "audio" ? "audio/unknown" : "")).toLowerCase() });
+          if (url) candidates.push({ url, type: (node.getAttribute("type") || (String(node.getAttribute("medium") || "").toLowerCase() + "/unknown")).toLowerCase() });
+        }
+        if (localName === "alternateenclosure") {
+          const source = directChild(node, ["source"]);
+          const url = safeHttpUrl(node.getAttribute("url") || (source && (source.getAttribute("uri") || source.getAttribute("url"))) || "", baseUrl);
+          if (url) candidates.push({ url, type: String(node.getAttribute("type") || "").toLowerCase() });
         }
         if (localName === "link" && String(node.getAttribute("rel") || "").toLowerCase() === "enclosure") {
           const url = safeHttpUrl(node.getAttribute("href") || "", baseUrl);
-          if (url) candidates.push({ url, type: (node.getAttribute("type") || (node.getAttribute("medium") === "audio" ? "audio/unknown" : "")).toLowerCase() });
+          if (url) candidates.push({ url, type: (node.getAttribute("type") || (String(node.getAttribute("medium") || "").toLowerCase() + "/unknown")).toLowerCase() });
         }
       }
       if (!candidates.length) return { url: "", mediaType: "audio" };
@@ -870,9 +875,10 @@
         const media = extractEpisodeMedia(entry, show.feedUrl);
         const audioUrl = media.url;
         const enclosureLinks = allByLocalName(entry, "link").filter(node => String(node.getAttribute("rel") || "").toLowerCase() === "enclosure");
-        const enclosureNodes = enclosureLinks.concat(allByLocalName(entry, "enclosure"), allByLocalName(entry, "content"));
+        const enclosureNodes = enclosureLinks.concat(allByLocalName(entry, "enclosure"), allByLocalName(entry, "content"), allByLocalName(entry, "alternateenclosure"));
         const enclosure = enclosureNodes.find(node => {
-          const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || "", show.feedUrl);
+          const source = directChild(node, ["source"]);
+          const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || (source && (source.getAttribute("uri") || source.getAttribute("url"))) || "", show.feedUrl);
           return url && url === audioUrl;
         }) || null;
         const duration = tagText(entry, ["duration"]);
