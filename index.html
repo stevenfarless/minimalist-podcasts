@@ -110,7 +110,7 @@
               </select>
             </div>
             <audio id="audio-player" controls preload="metadata" aria-label="Podcast audio player"></audio>
-            <video id="video-player" controls preload="metadata" playsinline hidden aria-label="Podcast video player"></video>
+            <video id="video-player" controls preload="metadata" playsinline hidden width="480" aria-label="Podcast video player"></video>
             <p id="player-status" role="status" aria-live="polite">The player is ready.</p>
           </div>
         </div>
@@ -1530,6 +1530,8 @@
         played.type = "button"; played.addEventListener("click", () => markEpisodePlayed(episode, !episodeHasBeenPlayed(episode)));
         actions.push(played);
         if (episode.link) actions.push(makeExternalLink(episode.link, "Episode page"));
+        // Lets the browser play the file full size in its own tab.
+        if (episode.mediaType === "video" && episode.audioUrl) actions.push(makeExternalLink(episode.audioUrl, "Open Video File"));
 
         expandedContent.append(makeActionGroup("Episode actions", actions));
         disclosure.append(expandedContent);
@@ -1778,6 +1780,7 @@
       elements.nowPlaying.append(makeElement("h3", episode.title));
       elements.nowPlaying.append(makeElement("p", episode.showTitle));
       if (episode.link) elements.nowPlaying.append(makeExternalLink(episode.link, "Episode page"));
+      if (episode.mediaType === "video" && episode.audioUrl) elements.nowPlaying.append(makeExternalLink(episode.audioUrl, "Open Video File"));
       const mark = makeElement("button", episodeHasBeenPlayed(episode) ? "Mark Unplayed" : "Mark Played");
       mark.type = "button"; mark.addEventListener("click", () => markEpisodePlayed(episode, !episodeHasBeenPlayed(episode)));
       elements.nowPlaying.append(mark);

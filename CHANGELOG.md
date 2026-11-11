@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.2
+
+- Set the video player to 480 px wide with a plain HTML `width` attribute (no CSS) so 1080p video episodes no longer fill the page at full size.
+- Add an "Open Video File" link to video episodes that opens the video file directly, so the browser plays it full size in its own tab.
+- Add regression coverage for the video player width and the video file link.
+
 ## 2.1.1
 
 - Load very large feeds (for example, shows with thousands of episodes) instead of failing: feeds are read up to 10 MB and trimmed to the last complete episode, so the newest episodes appear and the status line says the list was shortened.
