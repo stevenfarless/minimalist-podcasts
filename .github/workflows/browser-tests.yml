@@ -2,7 +2,7 @@ name: Browser regression tests
 
 on:
   push:
-    branches: [main, "hardening/**"]
+    branches: [main]
   pull_request:
     branches: [main]
 
