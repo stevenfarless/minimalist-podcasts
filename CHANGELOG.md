@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0
+
+- Add native HTML5 video playback for video podcast enclosures, including Podcasting 2.0 alternate enclosures.
+- Switch between native audio and video elements while preserving shared queue, progress, history, and playback-speed behavior.
+- Keep playback controls browser-provided; no video-player library or runtime dependency is added.
+- Add cross-browser regression coverage for video enclosure parsing and switching between video and audio episodes.
+
+
 ## 2.0.3
 
 - Ignore delayed playback-start failures from episodes that are no longer selected.
