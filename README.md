@@ -93,7 +93,7 @@ Run the browser regression suite with Node.js 20 or later:
 
 ```sh
 npm install
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 npm test
 ```
 
