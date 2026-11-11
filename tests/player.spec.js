@@ -26,6 +26,16 @@ const ATOM = `<?xml version="1.0" encoding="UTF-8"?>
 
 async function mockMedia(page) {
   await page.addInitScript(() => {
+    // The fixtures use unresolvable *.example.test media hosts. Record the source
+    // without letting the browser fetch it, otherwise the browser fires a genuine
+    // media "error" event that the app correctly reports. Tests dispatch their own
+    // synthetic media events when they need them.
+    const sources = new WeakMap();
+    Object.defineProperty(HTMLMediaElement.prototype, "src", {
+      configurable: true,
+      get() { return sources.get(this) || ""; },
+      set(value) { sources.set(this, value ? new URL(value, document.baseURI).href : ""); }
+    });
     HTMLMediaElement.prototype.play = function () {
       this.__mockPlaying = true;
       return Promise.resolve();
@@ -41,6 +51,16 @@ async function mockMedia(page) {
   });
 }
 
+// Every main section is a native <details> element that starts collapsed, and
+// Playwright will not interact with controls inside a closed one.
+async function openSection(page, id) {
+  const section = page.locator(`#${id}`);
+  if (!(await section.evaluate(element => element.open))) {
+    await page.locator(`#${id} > summary`).click();
+  }
+  await expect(section).toHaveJSProperty("open", true);
+}
+
 async function addFeed(page, url, body) {
   await page.route(url, route => route.fulfill({
     status: 200,
@@ -48,6 +68,7 @@ async function addFeed(page, url, body) {
     headers: { "access-control-allow-origin": "*" },
     body
   }));
+  await openSection(page, "rss-section");
   await page.locator("#rss-url").fill(url);
   await page.getByRole("button", { name: "Add Feed" }).click();
 }
@@ -58,8 +79,15 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("normalizes malformed local storage without crashing or retaining invalid records", async ({ page }) => {
-  await page.evaluate(key => {
-    localStorage.setItem(key, JSON.stringify({
+  // Seed storage before the app starts. Seeding the already-loaded page and then
+  // calling reload() does not work: the old page's pagehide handler saves its own
+  // in-memory state over the seed while it unloads.
+  await page.addInitScript(([key, value]) => {
+    if (!sessionStorage.getItem("test-seeded")) {
+      sessionStorage.setItem("test-seeded", "1");
+      localStorage.setItem(key, value);
+    }
+  }, [STORAGE_KEY, JSON.stringify({
       library: [null, "bad", { title: "Valid Show", feedUrl: "https://valid.example.test/feed.xml" }, { title: "Duplicate", feedUrl: "https://valid.example.test/feed.xml" }],
       queue: [null, {}, { id: "no-audio", title: "No Audio" }, { id: "valid", title: "Playable", audioUrl: "https://media.example.test/valid.mp3" }],
       favorites: [null, { id: "favorite", title: "Saved" }],
@@ -70,9 +98,8 @@ test("normalizes malformed local storage without crashing or retaining invalid r
       currentEpisode: { title: "Broken current episode" },
       currentTime: -1,
       playbackRate: 99
-    }));
-  }, STORAGE_KEY);
-  await page.reload();
+  })]);
+  await page.goto("/");
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.library).toHaveLength(1);
   expect(saved.library[0].title).toBe("Valid Show");
@@ -83,7 +110,11 @@ test("normalizes malformed local storage without crashing or retaining invalid r
   expect(saved.currentEpisode).toBeNull();
   expect(saved.currentTime).toBe(0);
   expect(saved.playbackRate).toBe(1);
-  expect(saved.expandedSections).toEqual({ "library-section": true });
+  // The app records the open/closed state of every section, so check that the
+  // invalid entry was dropped and the valid one kept rather than exact equality.
+  expect(saved.expandedSections["library-section"]).toBe(true);
+  expect(saved.expandedSections).not.toHaveProperty("invalid");
+  expect(Object.values(saved.expandedSections).every(value => typeof value === "boolean")).toBe(true);
 });
 
 test("imports RSS, renders episodes, and supports queue, favorites, and played state", async ({ page }) => {
@@ -172,13 +203,20 @@ test("imports valid OPML through the FileReader fallback", async ({ page }) => {
 
 test("rejects non-OPML XML and leaves the subscription library unchanged", async ({ page }) => {
   await page.locator("#import-opml").setInputFiles({
+    name: "subscriptions.opml",
+    mimeType: "text/xml",
+    buffer: Buffer.from('<?xml version="1.0"?><opml version="2.0"><head><title>Test</title></head><body><outline text="Existing Show" xmlUrl="https://opml.example.test/existing.xml"/></body></opml>')
+  });
+  await expect(page.locator("#library-list")).toContainText("Existing Show");
+  await page.locator("#import-opml").setInputFiles({
     name: "wrong.xml",
     mimeType: "application/xml",
     buffer: Buffer.from("<root><outline xmlUrl=\"https://example.test/feed.xml\"/></root>")
   });
   await expect(page.locator("#opml-status")).toContainText("not valid OPML/XML");
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
-  expect(saved.library).toHaveLength(0);
+  expect(saved.library).toHaveLength(1);
+  expect(saved.library[0].feedUrl).toBe("https://opml.example.test/existing.xml");
 });
 
 test("rejects invalid backups without overwriting current browser data", async ({ page }) => {

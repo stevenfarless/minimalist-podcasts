@@ -8,7 +8,8 @@ module.exports = defineConfig({
   reporter: "list",
   use: {
     baseURL: "http://127.0.0.1:4173",
-    headless: true
+    headless: true,
+    trace: "on-first-retry"
   },
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },
