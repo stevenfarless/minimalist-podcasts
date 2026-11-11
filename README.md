@@ -78,7 +78,7 @@ Feed diagnostics can help identify failed requests. A failed refresh retains the
 
 ## Development
 
-- Application version: `2.0.1`
+- Application version: `2.0.2`
 - Storage schema: `2`
 - Main application: `index.html`
 - Language: HTML and vanilla JavaScript
@@ -86,6 +86,18 @@ Feed diagnostics can help identify failed requests. A failed refresh retains the
 - Build process: none
 
 See [CHANGELOG.md](CHANGELOG.md) for project changes.
+
+## Tests
+
+Run the browser regression suite with Node.js 20 or later:
+
+```sh
+npm install
+npx playwright install chromium firefox webkit
+npm test
+```
+
+The Playwright suite launches the app in Chromium, Firefox, and WebKit and tests malformed local storage recovery, RSS and Atom feed loading, queue and episode state changes, stale playback events, and invalid OPML/backup handling. GitHub Actions runs the same suite on pushes and pull requests. These tests provide repeatable Chromium coverage; they do not establish compatibility with every browser, podcast host, or audio codec.
 
 ## License
 

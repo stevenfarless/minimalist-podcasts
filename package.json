@@ -1,0 +1,12 @@
+{
+  "name": "minimalist-podcasts",
+  "private": true,
+  "version": "2.0.2",
+  "description": "Browser tests for the single-file podcast player",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1"
+  }
+}

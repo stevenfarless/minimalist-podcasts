@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.2
+
+- Guard playback progress, completion, pause, and error handling against media events from a previously selected audio source.
+- Ignore stale playback-start failures after a newer episode has been selected.
+- Reject stale subscription refresh results when the subscription was removed or its feed address changed during the request.
+- Refresh cached episode lists after their ten-minute freshness window expires.
+- Normalize and bound browser-saved records before loading them into application state; discard invalid URLs, malformed records, duplicate subscriptions, and invalid playback settings.
+- Add a FileReader fallback for OPML and JSON imports and validate the OPML document root.
+- Add a Playwright Chromium regression suite and GitHub Actions workflow.
+
 ## 2.0.1
 
 - Preserve loaded subscription panels, episode filters, and expanded episode state when the library is filtered or re-rendered.
