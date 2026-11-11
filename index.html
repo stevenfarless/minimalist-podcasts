@@ -713,7 +713,7 @@
         const guid = tagText(entry, ["guid", "id"]);
         const audioUrl = extractEpisodeAudio(entry, show.feedUrl);
         const enclosureLinks = allByLocalName(entry, "link").filter(node => String(node.getAttribute("rel") || "").toLowerCase() === "enclosure");
-        const enclosureNodes = allByLocalName(entry, "enclosure").concat(allByLocalName(entry, "content"), enclosureLinks);
+        const enclosureNodes = enclosureLinks.concat(allByLocalName(entry, "enclosure"), allByLocalName(entry, "content"));
         const enclosure = enclosureNodes.find(node => {
           const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || "", show.feedUrl);
           return url && url === audioUrl;
