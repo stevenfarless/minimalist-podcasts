@@ -110,6 +110,7 @@
               </select>
             </div>
             <audio id="audio-player" controls preload="metadata" aria-label="Podcast audio player"></audio>
+            <video id="video-player" controls preload="metadata" playsinline hidden aria-label="Podcast video player"></video>
             <p id="player-status" role="status" aria-live="polite">The player is ready.</p>
           </div>
         </div>
@@ -199,6 +200,9 @@
     const APPLE_MIN_REQUEST_INTERVAL_MS = 3200;
     const PINEPODS_SEARCH_TIMEOUT_MS = 18000;
 
+    let activeMedia;
+    let suppressPauseFor = null;
+
     const elements = {
       searchForm: document.getElementById("search-form"),
       searchQuery: document.getElementById("search-query"),
@@ -236,7 +240,9 @@
       skipForward: document.getElementById("skip-forward"),
       nextEpisode: document.getElementById("next-episode"),
       playbackSpeed: document.getElementById("playback-speed"),
-      audio: document.getElementById("audio-player"),
+      audioElement: document.getElementById("audio-player"),
+      video: document.getElementById("video-player"),
+      get audio() { return activeMedia; },
       playerStatus: document.getElementById("player-status"),
       favoritesEmpty: document.getElementById("favorites-empty"),
       favoritesList: document.getElementById("favorites-list"),
@@ -264,6 +270,7 @@
       diagnosticsList: document.getElementById("diagnostics-list"),
       clearDiagnostics: document.getElementById("clear-diagnostics")
     };
+    activeMedia = elements.audioElement;
 
     function emptyState() {
       return {
@@ -402,7 +409,6 @@
     };
     let currentQueueIndex = -1;
     let playbackGeneration = 0;
-    let suppressNextPauseEvent = false;
     const libraryPanels = new Map();
     const showPanels = new Set();
     let activeSearchPanel = null;
@@ -563,6 +569,7 @@
         showArtwork: safeHttpUrl(raw.showArtwork || ""),
         feedUrl: safeHttpUrl(raw.feedUrl || ""),
         audioUrl: safeHttpUrl(raw.audioUrl || ""),
+        mediaType: raw.mediaType === "video" ? "video" : "audio",
         link: safeHttpUrl(raw.link || ""),
         date: String(raw.date || ""),
         duration: String(raw.duration || ""),
@@ -804,7 +811,7 @@
       }
     }
 
-    function extractEpisodeAudio(entry, baseUrl) {
+    function extractEpisodeMedia(entry, baseUrl) {
       const candidates = [];
       const all = entry.getElementsByTagName("*");
       for (let i = 0; i < all.length; i += 1) {
@@ -819,11 +826,18 @@
           if (url) candidates.push({ url, type: (node.getAttribute("type") || (node.getAttribute("medium") === "audio" ? "audio/unknown" : "")).toLowerCase() });
         }
       }
-      if (!candidates.length) return "";
-      const audio = candidates.find(item => item.type.split(";")[0].trim().startsWith("audio/"));
-      if (audio) return audio.url;
-      const likelyAudio = candidates.find(item => /\.(mp3|m4a|m4b|mp4|aac|ogg|oga|opus|wav)(?:$|[?#])/i.test(item.url));
-      return likelyAudio ? likelyAudio.url : "";
+      if (!candidates.length) return { url: "", mediaType: "audio" };
+      const classify = item => {
+        const mime = item.type.split(";")[0].trim();
+        if (mime.startsWith("video/")) return "video";
+        if (mime.startsWith("audio/")) return "audio";
+        if (/\.(mp4|m4v|webm|ogv|mov|mkv)(?:$|[?#])/i.test(item.url)) return "video";
+        if (/\.(mp3|m4a|m4b|aac|ogg|oga|opus|wav|flac)(?:$|[?#])/i.test(item.url)) return "audio";
+        return "";
+      };
+      const typed = candidates.map(item => ({ ...item, mediaType: classify(item) })).filter(item => item.mediaType);
+      const selected = typed.find(item => item.mediaType === "video") || typed.find(item => item.mediaType === "audio");
+      return selected ? { url: selected.url, mediaType: selected.mediaType } : { url: "", mediaType: "audio" };
     }
 
     function episodeDescriptionMarkup(entry) {
@@ -853,7 +867,8 @@
         const titleText = tagText(entry, ["title"]) || "Untitled Episode";
         const date = tagText(entry, ["pubDate", "published", "updated", "date"]);
         const guid = tagText(entry, ["guid", "id"]);
-        const audioUrl = extractEpisodeAudio(entry, show.feedUrl);
+        const media = extractEpisodeMedia(entry, show.feedUrl);
+        const audioUrl = media.url;
         const enclosureLinks = allByLocalName(entry, "link").filter(node => String(node.getAttribute("rel") || "").toLowerCase() === "enclosure");
         const enclosureNodes = enclosureLinks.concat(allByLocalName(entry, "enclosure"), allByLocalName(entry, "content"));
         const enclosure = enclosureNodes.find(node => {
@@ -879,6 +894,7 @@
           showArtwork: actualShow.artwork,
           feedUrl: actualShow.feedUrl,
           audioUrl,
+          mediaType: media.mediaType,
           link,
           date,
           duration,
@@ -1446,6 +1462,7 @@
         const item = makeElement("li");
         item.dataset.episodeId = episode.id;
         item.dataset.audioUrl = episode.audioUrl;
+        item.dataset.mediaType = episode.mediaType;
 
         // Keep each row compact until its title is opened.
         const disclosure = makeElement("details");
@@ -1461,7 +1478,7 @@
         if (episode.description) expandedContent.append(makeElement("p", episode.description));
 
         const actions = [];
-        const play = makeElement("button", episode.audioUrl ? "Play Episode" : "No Audio File");
+        const play = makeElement("button", episode.audioUrl ? "Play Episode" : "No Playable Media");
         play.type = "button";
         play.disabled = !episode.audioUrl;
         play.addEventListener("click", () => playEpisode(episode));
@@ -1574,7 +1591,7 @@
     function playEpisode(episode, resumeAt) {
       const normalized = persistableEpisode(episode);
       if (!normalized.audioUrl) {
-        setStatus(elements.playerStatus, "This episode does not include a playable audio file.", true);
+        setStatus(elements.playerStatus, "This episode does not include a playable media file.", true);
         return;
       }
       let index = state.queue.findIndex(item => item.id === normalized.id);
@@ -1588,33 +1605,47 @@
         updateProgress(state.currentEpisode, elements.audio.currentTime, elements.audio.duration);
       }
       currentQueueIndex = index;
-      if (!elements.audio.paused) suppressNextPauseEvent = true;
-      elements.audio.pause();
+      const targetMedia = normalized.mediaType === "video" ? elements.video : elements.audioElement;
+      if (elements.audio !== targetMedia) {
+        const previousMedia = elements.audio;
+        if (!previousMedia.paused) {
+          suppressPauseFor = previousMedia;
+          previousMedia.pause();
+        }
+        previousMedia.hidden = true;
+        targetMedia.hidden = false;
+        activeMedia = targetMedia;
+      }
+      const media = elements.audio;
+      if (!media.paused) {
+        suppressPauseFor = media;
+        media.pause();
+      }
       state.currentEpisode = normalized;
       state.currentTime = Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0 ? Number(resumeAt) : 0;
       state.playbackRate = Number(elements.playbackSpeed.value) || 1;
       const generation = ++playbackGeneration;
       if (resumeAt !== undefined && Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0) {
         const seekOnMetadata = () => {
-          elements.audio.removeEventListener("loadedmetadata", seekOnMetadata);
+          media.removeEventListener("loadedmetadata", seekOnMetadata);
           if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) return;
-          const duration = elements.audio.duration;
-          if (Number.isFinite(duration) && duration > 0) elements.audio.currentTime = Math.min(Number(resumeAt), Math.max(0, duration - 1));
+          const duration = media.duration;
+          if (Number.isFinite(duration) && duration > 0) media.currentTime = Math.min(Number(resumeAt), Math.max(0, duration - 1));
         };
-        elements.audio.addEventListener("loadedmetadata", seekOnMetadata);
+        media.addEventListener("loadedmetadata", seekOnMetadata);
       }
-      elements.audio.src = normalized.audioUrl;
-      elements.audio.playbackRate = state.playbackRate;
-      elements.audio.load();
+      media.src = normalized.audioUrl;
+      media.playbackRate = state.playbackRate;
+      media.load();
       renderNowPlaying();
       renderQueue();
       placePlayerUnderEpisode();
       saveState();
-      const playPromise = elements.audio.play();
+      const playPromise = media.play();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch(error => {
           if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) return;
-          setStatus(elements.playerStatus, "The episode is loaded. Press Play in the audio controls to start it. " + (error && error.name === "NotAllowedError" ? "Your browser requires a direct play action." : "The audio source may be unavailable."));
+          setStatus(elements.playerStatus, "The episode is loaded. Press Play in the media controls to start it. " + (error && error.name === "NotAllowedError" ? "Your browser requires a direct play action." : "The media source may be unavailable."));
         });
       }
     }
@@ -2182,21 +2213,25 @@
     function restorePlayer() {
       const rate = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].includes(Number(state.playbackRate)) ? Number(state.playbackRate) : 1;
       elements.playbackSpeed.value = String(rate);
-      elements.audio.playbackRate = rate;
       playbackGeneration += 1;
       const generation = playbackGeneration;
       if (state.currentEpisode && safeHttpUrl(state.currentEpisode.audioUrl)) {
         state.currentEpisode = normalizeEpisode(state.currentEpisode);
+        const targetMedia = state.currentEpisode.mediaType === "video" ? elements.video : elements.audioElement;
+        elements.audio.hidden = true;
+        targetMedia.hidden = false;
+        activeMedia = targetMedia;
+        targetMedia.playbackRate = rate;
         currentQueueIndex = state.queue.findIndex(item => item.id === state.currentEpisode.id);
         const episodeId = state.currentEpisode.id, resumeAt = Number(state.currentTime) || 0;
         const restorePosition = () => {
-          elements.audio.removeEventListener("loadedmetadata", restorePosition);
+          targetMedia.removeEventListener("loadedmetadata", restorePosition);
           if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== episodeId) return;
-          if (Number.isFinite(elements.audio.duration) && elements.audio.duration > 0 && resumeAt > 0 && resumeAt < elements.audio.duration) elements.audio.currentTime = resumeAt;
+          if (Number.isFinite(targetMedia.duration) && targetMedia.duration > 0 && resumeAt > 0 && resumeAt < targetMedia.duration) targetMedia.currentTime = resumeAt;
         };
-        elements.audio.addEventListener("loadedmetadata", restorePosition);
-        elements.audio.src = state.currentEpisode.audioUrl;
-        elements.audio.load();
+        targetMedia.addEventListener("loadedmetadata", restorePosition);
+        targetMedia.src = state.currentEpisode.audioUrl;
+        targetMedia.load();
         renderNowPlaying();
       }
     }
@@ -2246,49 +2281,52 @@
       renderHistory();
     });
 
-    elements.audio.addEventListener("timeupdate", () => {
-      if (!isCurrentPlaybackSource()) return;
-      const now = Date.now();
-      const current = Number.isFinite(elements.audio.currentTime) ? elements.audio.currentTime : 0;
-      const duration = Number.isFinite(elements.audio.duration) ? elements.audio.duration : 0;
-      state.currentTime = current;
-      if (state.currentEpisode && duration > 0 && current / duration >= 0.9 && !episodeHasBeenPlayed(state.currentEpisode)) recordHistory(state.currentEpisode);
-      if (now - lastSavedTime > 10000) {
-        if (state.currentEpisode && current > 0) updateProgress(state.currentEpisode, current, duration);
-        else saveState();
-        lastSavedTime = now;
-      }
-    });
-    elements.audio.addEventListener("loadedmetadata", () => {
-      if (isCurrentPlaybackSource()) {
-        setStatus(elements.playerStatus, "Ready: " + state.currentEpisode.title);
-      }
-    });
-    elements.audio.addEventListener("play", () => {
-      if (!isCurrentPlaybackSource()) return;
-      setStatus(elements.playerStatus, "Playing: " + state.currentEpisode.title);
-    });
-    elements.audio.addEventListener("pause", () => {
-      if (suppressNextPauseEvent) {
-        suppressNextPauseEvent = false;
-        return;
-      }
-      if (!elements.audio.ended && isCurrentPlaybackSource()) {
-        setStatus(elements.playerStatus, "Paused: " + state.currentEpisode.title);
-        if (Number.isFinite(elements.audio.currentTime) && elements.audio.currentTime > 0) {
-          state.currentTime = elements.audio.currentTime;
-          updateProgress(state.currentEpisode, elements.audio.currentTime, elements.audio.duration);
-        } else saveState();
-      }
-    });
-    elements.audio.addEventListener("ended", () => {
-      if (!isCurrentPlaybackSource()) return;
-      if (!episodeHasBeenPlayed(state.currentEpisode)) recordHistory(state.currentEpisode);
-      playNextInQueue();
-    });
-    elements.audio.addEventListener("error", () => {
-      if (isCurrentPlaybackSource()) setStatus(elements.playerStatus, "The audio file could not be played. The publisher may have removed it or the server may be unavailable.", true);
-    });
+    for (const media of [elements.audioElement, elements.video]) {
+      media.addEventListener("timeupdate", () => {
+        if (elements.audio !== media || !isCurrentPlaybackSource()) return;
+        const now = Date.now();
+        const current = Number.isFinite(media.currentTime) ? media.currentTime : 0;
+        const duration = Number.isFinite(media.duration) ? media.duration : 0;
+        state.currentTime = current;
+        if (state.currentEpisode && duration > 0 && current / duration >= 0.9 && !episodeHasBeenPlayed(state.currentEpisode)) recordHistory(state.currentEpisode);
+        if (now - lastSavedTime > 10000) {
+          if (state.currentEpisode && current > 0) updateProgress(state.currentEpisode, current, duration);
+          else saveState();
+          lastSavedTime = now;
+        }
+      });
+      media.addEventListener("loadedmetadata", () => {
+        if (elements.audio === media && isCurrentPlaybackSource()) setStatus(elements.playerStatus, "Ready: " + state.currentEpisode.title);
+      });
+      media.addEventListener("play", () => {
+        if (elements.audio === media && isCurrentPlaybackSource()) setStatus(elements.playerStatus, "Playing: " + state.currentEpisode.title);
+      });
+      media.addEventListener("pause", () => {
+        if (suppressPauseFor === media) {
+          suppressPauseFor = null;
+          return;
+        }
+        if (elements.audio !== media) return;
+        if (!media.ended && isCurrentPlaybackSource()) {
+          setStatus(elements.playerStatus, "Paused: " + state.currentEpisode.title);
+          if (Number.isFinite(media.currentTime) && media.currentTime > 0) {
+            state.currentTime = media.currentTime;
+            updateProgress(state.currentEpisode, media.currentTime, media.duration);
+          } else saveState();
+        }
+      });
+      media.addEventListener("ended", () => {
+        if (elements.audio !== media || !isCurrentPlaybackSource()) return;
+        if (!episodeHasBeenPlayed(state.currentEpisode)) recordHistory(state.currentEpisode);
+        playNextInQueue();
+      });
+      media.addEventListener("error", () => {
+        if (elements.audio === media && isCurrentPlaybackSource()) {
+          const kind = state.currentEpisode.mediaType === "video" ? "video" : "audio";
+          setStatus(elements.playerStatus, "The " + kind + " file could not be played. The publisher may have removed it, the server may be unavailable, or this browser may not support its codec.", true);
+        }
+      });
+    }
     window.addEventListener("pagehide", () => {
       if (isCurrentPlaybackSource() && Number.isFinite(elements.audio.currentTime)) {
         state.currentTime = elements.audio.currentTime;
