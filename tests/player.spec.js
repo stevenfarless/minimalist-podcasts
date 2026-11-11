@@ -45,6 +45,7 @@ async function addFeed(page, url, body) {
   await page.route(url, route => route.fulfill({
     status: 200,
     contentType: "application/xml; charset=utf-8",
+    headers: { "access-control-allow-origin": "*" },
     body
   }));
   await page.locator("#rss-url").fill(url);
@@ -115,6 +116,8 @@ test("parses Atom enclosure links and resolves relative audio URLs", async ({ pa
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.library).toHaveLength(1);
   expect(saved.library[0].feedUrl).toBe(ATOM_URL);
+  const episode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Atom Episode" });
+  await expect(episode).toHaveAttribute("data-audio-url", "https://feeds.example.test/media/atom.mp3");
 });
 
 test("ignores stale media error and ended events after switching episodes", async ({ page }) => {
