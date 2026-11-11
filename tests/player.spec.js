@@ -190,16 +190,22 @@ test("parses video podcast enclosures and uses the browser's native video elemen
   await expect(videoEpisode).toHaveAttribute("data-media-type", "video");
   await expect(videoEpisode).toHaveAttribute("data-audio-url", "https://media.example.test/video-one.mp4");
   await videoEpisode.getByText("Video Episode", { exact: true }).click();
+  const videoFileLink = videoEpisode.getByRole("link", { name: "Open Video File" });
+  await expect(videoFileLink).toHaveAttribute("href", "https://media.example.test/video-one.mp4");
+  await expect(videoFileLink).toHaveAttribute("target", "_blank");
   await videoEpisode.getByRole("button", { name: "Play Episode" }).click();
 
   const video = page.locator("#video-player");
   await expect(video).toBeVisible();
   await expect(video).toHaveAttribute("controls", "");
+  // A 1080p file must not render at its native size.
+  expect((await video.boundingBox()).width).toBeLessThanOrEqual(480);
   await expect(page.locator("#audio-player")).toBeHidden();
   expect(await video.evaluate(element => element.src)).toBe("https://media.example.test/video-one.mp4");
 
   const audioEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Audio Episode" });
   await audioEpisode.getByText("Audio Episode", { exact: true }).click();
+  await expect(audioEpisode.getByRole("link", { name: "Open Video File" })).toHaveCount(0);
   await audioEpisode.getByRole("button", { name: "Play Episode" }).click();
   await expect(page.locator("#audio-player")).toBeVisible();
   await expect(video).toBeHidden();
