@@ -183,10 +183,10 @@
 
   <footer>
     <hr>
-    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted
-      search service. Episode lists come from the public RSS or Atom feed of the show you open. Library dates reflect
-      the last successful check; opening the library does not refresh feeds. Listening status, subscriptions, queues,
-      and backups are stored in this browser.</p>
+    <p>Podcast Player runs in your browser. Search requests go directly to Apple Podcasts and to Podcast Index through
+      the PinePods hosted search service. Episode lists come from the public RSS or Atom feed of the show you open.
+      Library dates reflect the last successful check; opening the library does not refresh feeds. Listening status,
+      subscriptions, queues, and backups are stored in this browser.</p>
   </footer>
 
   <script>
@@ -198,6 +198,11 @@
     const RSS_PROXY_PREFIX = "https://proxy.cors.dev/";
     const STORAGE_KEY = "plain-html-podcast-player-v1";
     const MAX_HISTORY = 30;
+    const MAX_PLAYED_EPISODES = 5000;
+    const MAX_SUBSCRIPTIONS = 1000;
+    const MAX_QUEUE_EPISODES = 1000;
+    const MAX_FAVORITE_EPISODES = 1000;
+    const MAX_IN_PROGRESS_EPISODES = 200;
     const MAX_FEED_BYTES = 10 * 1024 * 1024;
     const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
     const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -221,7 +226,6 @@
       queueSection: document.getElementById("queue-section"),
       nowPlayingSection: document.getElementById("now-playing-section"),
       favoritesSection: document.getElementById("favorites-section"),
-      historySection: document.getElementById("history-section"),
       rssForm: document.getElementById("rss-form"),
       rssUrl: document.getElementById("rss-url"),
       rssStatus: document.getElementById("rss-status"),
@@ -249,11 +253,9 @@
       historyList: document.getElementById("history-list"),
       clearHistory: document.getElementById("clear-history"),
       libraryFilter: document.getElementById("library-filter"),
-      progressSection: document.getElementById("progress-section"),
       progressList: document.getElementById("progress-list"),
       progressEmpty: document.getElementById("progress-empty"),
       clearCompletedQueue: document.getElementById("clear-completed-queue"),
-      dataSection: document.getElementById("data-section"),
       exportOpml: document.getElementById("export-opml"),
       importOpml: document.getElementById("import-opml"),
       opmlStatus: document.getElementById("opml-status"),
@@ -261,7 +263,6 @@
       importBackup: document.getElementById("import-backup"),
       replaceBackup: document.getElementById("replace-backup"),
       backupStatus: document.getElementById("backup-status"),
-      diagnosticsSection: document.getElementById("diagnostics-section"),
       diagnosticsSummary: document.getElementById("diagnostics-summary"),
       diagnosticsList: document.getElementById("diagnostics-list"),
       clearDiagnostics: document.getElementById("clear-diagnostics")
@@ -304,48 +305,56 @@
         const normalizeStoredEpisodes = (items, limit) => uniqueById(
           (Array.isArray(items) ? items : [])
             .filter(isRecord)
-            .map(item => normalizeEpisode(item))
+            .map(item => persistableEpisode(item))
             .filter(item => item.id)
         ).slice(0, limit);
         const library = [];
         const feedUrls = new Set();
+        const libraryIds = new Set();
         for (const item of (Array.isArray(saved.library) ? saved.library : []).filter(isRecord)) {
           const show = normalizeShow(item);
-          if ((!show.feedUrl && !show.appleId) || (show.feedUrl && feedUrls.has(show.feedUrl)) || library.some(existing => existing.id === show.id)) continue;
+          if ((!show.feedUrl && !show.appleId) || (show.feedUrl && feedUrls.has(show.feedUrl)) || libraryIds.has(show.id)) continue;
           library.push(show);
+          libraryIds.add(show.id);
           if (show.feedUrl) feedUrls.add(show.feedUrl);
-          if (library.length >= 1000) break;
+          if (library.length >= MAX_SUBSCRIPTIONS) break;
         }
-        const queue = normalizeStoredEpisodes(saved.queue, 1000).filter(item => item.audioUrl);
-        const favorites = normalizeStoredEpisodes(saved.favorites, 1000);
+        const queue = normalizeStoredEpisodes(saved.queue, MAX_QUEUE_EPISODES).filter(item => item.audioUrl);
+        const favorites = normalizeStoredEpisodes(saved.favorites, MAX_FAVORITE_EPISODES);
         const historyItems = (Array.isArray(saved.history) ? saved.history : []).filter(isRecord);
         const historyIds = new Set();
         const history = historyItems.map(item => {
-          const episode = normalizeEpisode(item);
+          const episode = persistableEpisode(item);
           if (!episode.id || historyIds.has(episode.id)) return null;
           historyIds.add(episode.id);
           return {...episode, playedAt: String(item.playedAt || "")};
         }).filter(Boolean).slice(0, MAX_HISTORY);
         const playedIds = Array.isArray(saved.playedEpisodeIds)
-          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(0, 5000)
+          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim())
           : history.map(item => item.id);
-        const inProgress = (Array.isArray(saved.inProgress) ? saved.inProgress : [])
-          .filter(item => isRecord(item) && isRecord(item.episode))
-          .map(item => {
-            const currentTime = Number(item.currentTime), duration = Number(item.duration);
-            if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) return null;
-            const episode = normalizeEpisode(item.episode);
-            if (!episode.id || !episode.audioUrl) return null;
-            return {
-              episode,
-              currentTime: duration > 0 ? Math.min(currentTime, duration) : currentTime,
-              duration,
-              updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : ""
-            };
-          })
-          .filter(Boolean)
+        // Keep the latest occurrence of each ID before applying the collection cap.
+        const normalizedPlayedIds = [...new Set(playedIds.reverse())].reverse().slice(-MAX_PLAYED_EPISODES);
+        const progressByEpisode = new Map();
+        for (const item of (Array.isArray(saved.inProgress) ? saved.inProgress : [])) {
+          if (!isRecord(item) || !isRecord(item.episode)) continue;
+          const currentTime = Number(item.currentTime), duration = Number(item.duration);
+          if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) continue;
+          const episode = persistableEpisode(item.episode);
+          if (!episode.id || !episode.audioUrl) continue;
+          const entry = {
+            episode,
+            currentTime: duration > 0 ? Math.min(currentTime, duration) : currentTime,
+            duration,
+            updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : ""
+          };
+          const existing = progressByEpisode.get(episode.id);
+          if (!existing || (Date.parse(entry.updatedAt) || 0) > (Date.parse(existing.updatedAt) || 0)) {
+            progressByEpisode.set(episode.id, entry);
+          }
+        }
+        const inProgress = [...progressByEpisode.values()]
           .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
-          .slice(0, 200);
+          .slice(0, MAX_IN_PROGRESS_EPISODES);
         const diagnostics = (Array.isArray(saved.diagnostics) ? saved.diagnostics : [])
           .filter(isRecord)
           .map(item => ({
@@ -361,7 +370,7 @@
             if (/^[a-z][a-z0-9-]{0,80}$/i.test(key) && typeof value === "boolean") expandedSections[key] = value;
           }
         }
-        const currentEpisode = isRecord(saved.currentEpisode) ? normalizeEpisode(saved.currentEpisode) : null;
+        const currentEpisode = isRecord(saved.currentEpisode) ? persistableEpisode(saved.currentEpisode) : null;
         const validCurrentEpisode = currentEpisode && currentEpisode.audioUrl ? currentEpisode : null;
         const currentTime = Number(saved.currentTime);
         const rate = Number(saved.playbackRate);
@@ -370,7 +379,7 @@
           queue,
           favorites,
           history,
-          playedEpisodeIds: [...new Set(playedIds)],
+          playedEpisodeIds: normalizedPlayedIds,
           inProgress,
           diagnostics,
           expandedSections,
@@ -398,18 +407,22 @@
     let activeSearchPanel = null;
     let nowPlayingAutoOpened = false;
     let panelSequence = 0;
-    let showLoadToken = 0;
     let searchToken = 0;
     let lastSavedTime = 0;
     const statusTimers = new WeakMap();
     let lastAppleRequestAt = 0;
+    let appleRequestQueue = Promise.resolve();
     const appleSearchCache = new Map();
     const podcastIndexSearchCache = new Map();
 
     function cacheFeed(feedUrl, result) {
       if (feedCache.has(feedUrl)) feedCache.delete(feedUrl);
       feedCache.set(feedUrl, result);
-      if (feedCache.size > 20) feedCache.delete(feedCache.keys().next().value);
+      if (feedCache.size > 20) {
+        const oldestFeedUrl = feedCache.keys().next().value;
+        feedCache.delete(oldestFeedUrl);
+        latestFeedCacheTimestamps.delete(oldestFeedUrl);
+      }
     }
 
     function isCurrentPlaybackSource() {
@@ -478,10 +491,11 @@
     }
 
     function safeHttpUrl(value, baseUrl) {
-      if (typeof value !== "string" || !value.trim()) return "";
+      if (typeof value !== "string" || !value.trim() || value.length > 4096) return "";
       try {
         const parsed = baseUrl ? new URL(value.trim(), baseUrl) : new URL(value.trim());
-        return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
+        if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.username || parsed.password) return "";
+        return parsed.href;
       } catch (error) {
         return "";
       }
@@ -497,18 +511,26 @@
       return link;
     }
 
+    function nonnegativeNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) && number > 0 ? number : 0;
+    }
+
     function normalizeShow(raw) {
-      const suppliedId = raw.id != null ? String(raw.id) : "";
+      const rawSuppliedId = raw.id != null ? String(raw.id) : "";
+      const suppliedId = rawSuppliedId.length > 250 ? rawSuppliedId.slice(0, 200) + "-" + simpleHash(rawSuppliedId) : rawSuppliedId;
       // Podcast Index IDs are also numeric. Only explicit Apple fields or an
       // existing apple-<id> value may be treated as an Apple catalogue ID.
       const appleIdValue = raw.appleId != null ? raw.appleId :
         (raw.collectionId != null ? raw.collectionId :
           (raw.itunesId != null ? raw.itunesId :
-            (/^apple-\d+$/.test(suppliedId) ? suppliedId.slice(6) : "")));
-      const appleId = appleIdValue === "" ? "" : String(appleIdValue);
+            (raw.trackId != null ? raw.trackId :
+              (/^apple-\d+$/.test(suppliedId) ? suppliedId.slice(6) : ""))));
+      const appleIdCandidate = appleIdValue === "" ? "" : String(appleIdValue);
+      const appleId = /^\d{1,20}$/.test(appleIdCandidate) ? appleIdCandidate : "";
       const feedUrl = safeHttpUrl(raw.feedUrl || raw.feedURL || raw.originalUrl || raw.url || "");
-      const title = String(raw.title || raw.collectionName || raw.trackName || "Untitled Podcast").trim();
-      const artist = String(raw.artist || raw.artistName || raw.author || raw.ownerName || "").trim();
+      const title = String(raw.title || raw.collectionName || raw.trackName || "Untitled Podcast").trim().slice(0, 300);
+      const artist = String(raw.artist || raw.artistName || raw.author || raw.ownerName || "").trim().slice(0, 250);
       const artwork = safeHttpUrl(raw.artwork || raw.artworkUrl600 || raw.artworkUrl160 || raw.artworkUrl100 || raw.image || "");
       const appleUrl = safeHttpUrl(raw.appleUrl || raw.collectionViewUrl || raw.trackViewUrl || "");
       const existingStableId = /^(apple-\d+|feed-[a-f0-9]+)$/.test(suppliedId) ? suppliedId : "";
@@ -518,8 +540,8 @@
         const value = String(source || "").toLowerCase();
         if (value.includes("podcastindex") || value.includes("podcast index")) return "Podcast Index";
         if (value.includes("apple") || value === "itunes") return "Apple Podcasts";
-        return String(source || "").trim();
-      }).filter(Boolean))];
+        return String(source || "").trim().slice(0, 80);
+      }).filter(Boolean)).slice(0, 10)];
       return {
         id: stableId,
         appleId,
@@ -529,9 +551,9 @@
         artwork,
         appleUrl,
         latestEpisodeDate: Number.isFinite(Date.parse(raw.latestEpisodeDate)) ? new Date(raw.latestEpisodeDate).toISOString() : "",
-        feedCheckedAt: Number(raw.feedCheckedAt) > 0 ? Number(raw.feedCheckedAt) : 0,
-        trackCount: Number(raw.trackCount) || 0,
-        description: String(raw.description || ""),
+        feedCheckedAt: nonnegativeNumber(raw.feedCheckedAt),
+        trackCount: Math.floor(nonnegativeNumber(raw.trackCount)),
+        description: String(raw.description || "").slice(0, 500),
         sources
       };
     }
@@ -547,22 +569,24 @@
     }
 
     function normalizeEpisode(raw) {
+      const rawId = String(raw.id || simpleHash([raw.audioUrl, raw.title, raw.date].join("|")));
+      const id = rawId.length > 250 ? rawId.slice(0, 200) + "-" + simpleHash(rawId) : rawId;
       return {
-        id: String(raw.id || simpleHash([raw.audioUrl, raw.title, raw.date].join("|"))),
-        title: String(raw.title || "Untitled Episode"),
-        showId: String(raw.showId || ""),
-        showTitle: String(raw.showTitle || "Unknown Podcast"),
+        id,
+        title: String(raw.title || "Untitled Episode").slice(0, 300),
+        showId: String(raw.showId || "").slice(0, 250),
+        showTitle: String(raw.showTitle || "Unknown Podcast").slice(0, 300),
         showArtwork: safeHttpUrl(raw.showArtwork || ""),
         feedUrl: safeHttpUrl(raw.feedUrl || ""),
         audioUrl: safeHttpUrl(raw.audioUrl || ""),
         mediaType: raw.mediaType === "video" ? "video" : "audio",
         fallbackAudioUrl: safeHttpUrl(raw.fallbackAudioUrl || ""),
         link: safeHttpUrl(raw.link || ""),
-        date: String(raw.date || ""),
-        duration: String(raw.duration || ""),
+        date: String(raw.date || "").slice(0, 100),
+        duration: String(raw.duration || "").slice(0, 50),
         description: String(raw.description || "").slice(0, 3000),
         image: safeHttpUrl(raw.image || ""),
-        fileSize: Number(raw.fileSize) || 0
+        fileSize: Math.floor(nonnegativeNumber(raw.fileSize))
       };
     }
 
@@ -583,18 +607,27 @@
 
     function cleanHtmlToText(value) {
       if (!value) return "";
-      const parsed = new DOMParser().parseFromString(String(value), "text/html");
-      parsed.querySelectorAll("script, style, iframe, object, embed, noscript").forEach(node => node.remove());
-      return (parsed.body.textContent || "").replace(/\s+/g, " ").trim();
+      // Parse publisher HTML inside an inert template. A detached DOMParser HTML
+      // document can still fetch embedded images and frames even when only its
+      // textContent is used.
+      const template = document.createElement("template");
+      template.innerHTML = String(value).slice(0, 20000);
+      template.content.querySelectorAll("script, style, iframe, object, embed, noscript, img, picture, video, audio, source, track, link, meta").forEach(node => node.remove());
+      return (template.content.textContent || "").replace(/\s+/g, " ").trim().slice(0, 3000);
     }
 
     function firstByLocalName(parent, names) {
       if (!parent) return null;
       const wanted = new Set(names.map(name => name.toLowerCase()));
+      const firstMatches = new Map();
       const all = parent.getElementsByTagName("*");
       for (let i = 0; i < all.length; i += 1) {
         const name = (all[i].localName || all[i].nodeName.split(":").pop()).toLowerCase();
-        if (wanted.has(name)) return all[i];
+        if (wanted.has(name) && !firstMatches.has(name)) firstMatches.set(name, all[i]);
+      }
+      for (const name of names) {
+        const match = firstMatches.get(name.toLowerCase());
+        if (match) return match;
       }
       return null;
     }
@@ -612,53 +645,58 @@
 
     function tagText(parent, names) {
       const node = firstByLocalName(parent, names);
-      return node ? String(node.textContent || "").trim() : "";
+      return node ? String(node.textContent || "").trim().slice(0, 10000) : "";
     }
 
     function directChild(parent, names) {
       if (!parent) return null;
       const wanted = new Set(names.map(name => name.toLowerCase()));
+      const firstMatches = new Map();
       const children = parent.children || parent.childNodes || [];
       for (let i = 0; i < children.length; i += 1) {
         const node = children[i];
         if (node.nodeType === 1 || node.localName) {
           const name = String(node.localName || node.nodeName.split(":").pop()).toLowerCase();
-          if (wanted.has(name)) return node;
+          if (wanted.has(name) && !firstMatches.has(name)) firstMatches.set(name, node);
         }
+      }
+      for (const name of names) {
+        const match = firstMatches.get(name.toLowerCase());
+        if (match) return match;
       }
       return null;
     }
 
     function directTagText(parent, names) {
       const node = directChild(parent, names);
-      return node ? String(node.textContent || "").trim() : "";
+      return node ? String(node.textContent || "").trim().slice(0, 10000) : "";
     }
 
-    function directFeedImage(parent) {
+    function directFeedImage(parent, baseUrl) {
       const image = directChild(parent, ["image"]);
       if (image) {
         const href = image.getAttribute("href") || image.getAttribute("url");
-        if (safeHttpUrl(href)) return safeHttpUrl(href);
+        if (safeHttpUrl(href, baseUrl)) return safeHttpUrl(href, baseUrl);
         const nestedUrl = directTagText(image, ["url"]);
-        if (safeHttpUrl(nestedUrl)) return safeHttpUrl(nestedUrl);
+        if (safeHttpUrl(nestedUrl, baseUrl)) return safeHttpUrl(nestedUrl, baseUrl);
       }
-      const logo = directTagText(parent, ["logo"]);
-      if (safeHttpUrl(logo)) return safeHttpUrl(logo);
+      const logo = directTagText(parent, ["logo", "icon"]);
+      if (safeHttpUrl(logo, baseUrl)) return safeHttpUrl(logo, baseUrl);
       const thumbnail = directChild(parent, ["thumbnail"]);
-      return thumbnail ? safeHttpUrl(thumbnail.getAttribute("url") || "") : "";
+      return thumbnail ? safeHttpUrl(thumbnail.getAttribute("url") || "", baseUrl) : "";
     }
 
-    function attributeFromImage(parent) {
+    function attributeFromImage(parent, baseUrl) {
       const imageNodes = allByLocalName(parent, "image");
       for (const node of imageNodes) {
         const href = node.getAttribute("href") || node.getAttribute("url");
-        if (safeHttpUrl(href)) return safeHttpUrl(href);
+        if (safeHttpUrl(href, baseUrl)) return safeHttpUrl(href, baseUrl);
         const nestedUrl = tagText(node, ["url"]);
-        if (safeHttpUrl(nestedUrl)) return safeHttpUrl(nestedUrl);
+        if (safeHttpUrl(nestedUrl, baseUrl)) return safeHttpUrl(nestedUrl, baseUrl);
       }
       const thumbnails = allByLocalName(parent, "thumbnail");
       for (const node of thumbnails) {
-        const url = safeHttpUrl(node.getAttribute("url") || "");
+        const url = safeHttpUrl(node.getAttribute("url") || "", baseUrl);
         if (url) return url;
       }
       return "";
@@ -667,12 +705,18 @@
     function durationToSeconds(value) {
       if (!value) return 0;
       const input = String(value).trim();
-      if (/^\d+(\.\d+)?$/.test(input)) return Number(input);
+      if (/^\d+(\.\d+)?$/.test(input)) {
+        const seconds = Number(input);
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+      }
       const parts = input.split(":").map(part => Number(part));
-      if (parts.some(part => !Number.isFinite(part))) return 0;
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      return 0;
+      if (parts.some(part => !Number.isFinite(part) || part < 0)) return 0;
+      const seconds = parts.length === 2 && Number.isInteger(parts[0]) && parts[1] < 60
+        ? parts[0] * 60 + parts[1]
+        : parts.length === 3 && Number.isInteger(parts[0]) && Number.isInteger(parts[1]) && parts[1] < 60 && parts[2] < 60
+          ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+          : 0;
+      return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
     }
 
     function parseXmlDocument(xmlText) {
@@ -682,26 +726,89 @@
       if (!root || rootName === "parsererror" || documentXml.getElementsByTagName("parsererror").length > 0) {
         throw new Error("The podcast feed returned invalid XML.");
       }
-      const entries = allByLocalName(documentXml, "item");
-      const atomEntries = allByLocalName(documentXml, "entry");
-      const allEntries = entries.length ? entries : atomEntries;
-      if (!allEntries.length && !["rss", "feed", "rdf"].includes(rootName)) {
+      const rssEntries = allByLocalName(documentXml, "item");
+      const entries = rssEntries.length ? rssEntries : allByLocalName(documentXml, "entry");
+      if (!entries.length && !["rss", "feed", "rdf"].includes(rootName)) {
         throw new Error("The document is valid XML, but it is not an RSS or Atom podcast feed.");
       }
-      return {documentXml, entries: allEntries};
+      return {documentXml, entries};
+    }
+
+    function findLastCompleteEpisodeEnd(text) {
+      let cursor = 0;
+      let lastCompleteEnd = -1;
+      while (cursor < text.length) {
+        const start = text.indexOf("<", cursor);
+        if (start === -1) break;
+        if (text.startsWith("<!--", start)) {
+          const end = text.indexOf("-->", start + 4);
+          if (end === -1) break;
+          cursor = end + 3;
+          continue;
+        }
+        if (text.startsWith("<![CDATA[", start)) {
+          const end = text.indexOf("]]>", start + 9);
+          if (end === -1) break;
+          cursor = end + 3;
+          continue;
+        }
+        if (text.startsWith("<?", start)) {
+          const end = text.indexOf("?>", start + 2);
+          if (end === -1) break;
+          cursor = end + 2;
+          continue;
+        }
+        if (text.startsWith("<!", start)) {
+          let end = start + 2;
+          let quote = "";
+          let bracketDepth = 0;
+          for (; end < text.length; end += 1) {
+            const character = text[end];
+            if (quote) {
+              if (character === quote) quote = "";
+            } else if (character === "'" || character === '"') {
+              quote = character;
+            } else if (character === "[") {
+              bracketDepth += 1;
+            } else if (character === "]" && bracketDepth > 0) {
+              bracketDepth -= 1;
+            } else if (character === ">" && bracketDepth === 0) {
+              break;
+            }
+          }
+          if (end >= text.length) break;
+          cursor = end + 1;
+          continue;
+        }
+        let end = start + 1;
+        let quote = "";
+        for (; end < text.length; end += 1) {
+          const character = text[end];
+          if (quote) {
+            if (character === quote) quote = "";
+          } else if (character === "'" || character === '"') {
+            quote = character;
+          } else if (character === ">") {
+            break;
+          }
+        }
+        if (end >= text.length) break;
+        const token = text.slice(start + 1, end).trim();
+        const closingTag = /^\/\s*([A-Za-z_][\w.:-]*)\b/.exec(token);
+        if (closingTag && ["item", "entry"].includes(closingTag[1].split(":").pop().toLowerCase())) {
+          lastCompleteEnd = end + 1;
+        }
+        cursor = end + 1;
+      }
+      return lastCompleteEnd;
     }
 
     // Trims a partially downloaded feed back to its last complete episode and closes
-    // the open elements so it parses as valid XML. Feeds list newest episodes first,
-    // so what remains is the most recent part of the show.
+    // the open elements so it parses as valid XML. The scanner ignores closing-tag
+    // text inside comments, CDATA, processing instructions, and quoted attributes.
     function truncateFeedText(text) {
       const rootMatch = /<([A-Za-z_][\w.-]*:)?(rss|RDF|feed)(?=[\s>])/.exec(text);
-      const lastItem = text.lastIndexOf("</item>");
-      const lastEntry = text.lastIndexOf("</entry>");
-      const cutAt = Math.max(
-        lastItem === -1 ? -1 : lastItem + "</item>".length,
-        lastEntry === -1 ? -1 : lastEntry + "</entry>".length
-      );
+      const cutAt = findLastCompleteEpisodeEnd(text);
       if (!rootMatch || cutAt === -1) {
         throw new Error("Feed response exceeds the " + (MAX_FEED_BYTES / 1048576) + " MB size limit and no complete episode fits inside it.");
       }
@@ -760,20 +867,25 @@
           }
           text = new TextDecoder("utf-8").decode(bytes);
         } else {
+          const declaredLength = Number(response.headers.get("Content-Length"));
+          if (Number.isFinite(declaredLength) && declaredLength > MAX_FEED_BYTES) {
+            throw new Error("Feed response exceeds the " + (MAX_FEED_BYTES / 1048576) + " MB size limit in this browser.");
+          }
           text = await response.text();
-          if (text.length > MAX_FEED_BYTES) {
-            text = text.slice(0, MAX_FEED_BYTES);
-            truncated = true;
+          if (new Blob([text]).size > MAX_FEED_BYTES) {
+            throw new Error("Feed response exceeds the " + (MAX_FEED_BYTES / 1048576) + " MB size limit in this browser.");
           }
         }
-        return truncated ? {text: truncateFeedText(text), truncated: true} : {text, truncated: false};
+        return truncated
+          ? {text: truncateFeedText(text), truncated: true, responseUrl: response.url || url}
+          : {text, truncated: false, responseUrl: response.url || url};
       } finally {
         clearTimeout(timeout);
       }
     }
 
     function recordDiagnostic(feedUrl, message, kind) {
-      const entry = {feedUrl: safeHttpUrl(feedUrl), message: String(message || "Unknown feed error"), kind: kind || "error", at: new Date().toISOString()};
+      const entry = {feedUrl: safeHttpUrl(feedUrl), message: String(message || "Unknown feed error").slice(0, 1000), kind: String(kind || "error").slice(0, 100), at: new Date().toISOString()};
       state.diagnostics = [entry, ...(state.diagnostics || [])].slice(0, 100);
       renderDiagnostics();
       saveState();
@@ -783,10 +895,12 @@
       const entries = (state.diagnostics || []).slice(0, 100);
       elements.diagnosticsList.replaceChildren();
       elements.diagnosticsSummary.textContent = entries.length ? entries.length + " recent feed or storage events recorded." : "No feed diagnostics have been recorded.";
+      const fragment = document.createDocumentFragment();
       entries.forEach(entry => {
         const item = makeElement("li", formatDate(entry.at) + " | " + (entry.kind || "event") + " | " + (entry.feedUrl || "app") + " | " + entry.message);
-        elements.diagnosticsList.append(item);
+        fragment.append(item);
       });
+      elements.diagnosticsList.append(fragment);
     }
 
     async function retryTransient(operation, attempts) {
@@ -809,14 +923,14 @@
       let directError = null;
       try {
         const direct = await fetchTextWithTimeout(url, 12000);
-        return {...parseXmlDocument(direct.text), source: "direct", truncated: direct.truncated};
+        return {...parseXmlDocument(direct.text), source: "direct", truncated: direct.truncated, baseUrl: direct.responseUrl || url};
       } catch (error) {
         directError = error;
       }
 
       try {
         const proxied = await fetchTextWithTimeout(RSS_PROXY_PREFIX + url, 35000);
-        return {...parseXmlDocument(proxied.text), source: "proxy", truncated: proxied.truncated};
+        return {...parseXmlDocument(proxied.text), source: "proxy", truncated: proxied.truncated, baseUrl: url};
       } catch (proxyError) {
         const reason = proxyError && proxyError.message ? proxyError.message : "unknown error";
         const directReason = directError && directError.message ? directError.message : "direct feed request failed";
@@ -867,38 +981,35 @@
 
     function episodeDescriptionMarkup(entry) {
       const preferred = firstByLocalName(entry, ["encoded", "description", "summary"]);
-      if (preferred) return preferred.textContent || "";
+      if (preferred) return String(preferred.textContent || "").slice(0, 20000);
       const content = allByLocalName(entry, "content").find(node => {
         if (node.getAttribute("src") || String(node.getAttribute("medium") || "").toLowerCase() === "audio") return false;
         const type = String(node.getAttribute("type") || "").toLowerCase();
         return (!type || type.startsWith("text/") || type === "xhtml") && String(node.textContent || "").trim();
       });
-      return content ? content.textContent || "" : "";
+      return content ? String(content.textContent || "").slice(0, 20000) : "";
     }
 
-    function parseFeed(documentXml, show, source, truncated) {
+    function parseFeed(documentXml, show, source, truncated, sourceEntries, baseUrl) {
+      const documentBaseUrl = safeHttpUrl(baseUrl) || show.feedUrl;
       const root = documentXml.documentElement;
       const channel = allByLocalName(documentXml, "channel")[0] || root;
-      const title = directTagText(channel, ["title"]) || show.title;
-      const author = directTagText(channel, ["author", "creator", "managingEditor"]) || show.artist;
-      const description = cleanHtmlToText(directTagText(channel, ["description", "subtitle", "summary"])) || show.description;
-      const image = directFeedImage(channel) || show.artwork;
+      const title = (directTagText(channel, ["title"]) || show.title).slice(0, 300);
+      const author = (directTagText(channel, ["author", "creator", "managingEditor"]) || show.artist).slice(0, 250);
+      const description = (cleanHtmlToText(directTagText(channel, ["description", "subtitle", "summary"])) || show.description).slice(0, 500);
+      const image = directFeedImage(channel, documentBaseUrl) || show.artwork;
       const actualShow = {...show, title, artist: author, description, artwork: image};
-      const entries = allByLocalName(documentXml, "item");
-      const atomEntries = allByLocalName(documentXml, "entry");
-      const sourceEntries = entries.length ? entries : atomEntries;
-
       const episodes = sourceEntries.map((entry, index) => {
         const titleText = tagText(entry, ["title"]) || "Untitled Episode";
         const date = tagText(entry, ["pubDate", "published", "updated", "date"]);
         const guid = tagText(entry, ["guid", "id"]);
-        const media = extractEpisodeMedia(entry, show.feedUrl);
+        const media = extractEpisodeMedia(entry, documentBaseUrl);
         const audioUrl = media.url;
         const enclosureLinks = allByLocalName(entry, "link").filter(node => String(node.getAttribute("rel") || "").toLowerCase() === "enclosure");
         const enclosureNodes = enclosureLinks.concat(allByLocalName(entry, "enclosure"), allByLocalName(entry, "content"), allByLocalName(entry, "alternateenclosure"));
         const enclosure = enclosureNodes.find(node => {
           const source = directChild(node, ["source"]);
-          const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || (source && (source.getAttribute("uri") || source.getAttribute("url"))) || "", show.feedUrl);
+          const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || (source && (source.getAttribute("uri") || source.getAttribute("url"))) || "", documentBaseUrl);
           return url && url === audioUrl;
         }) || null;
         const duration = tagText(entry, ["duration"]);
@@ -908,8 +1019,8 @@
           const rel = String(node.getAttribute("rel") || "").toLowerCase();
           return !rel || rel === "alternate" || rel.endsWith("/alternate");
         });
-        const link = pageLink ? safeHttpUrl(pageLink.getAttribute("href") || pageLink.textContent.trim(), show.feedUrl) : "";
-        const episodeImage = attributeFromImage(entry) || image;
+        const link = pageLink ? safeHttpUrl(pageLink.getAttribute("href") || pageLink.textContent.trim(), documentBaseUrl) : "";
+        const episodeImage = attributeFromImage(entry, documentBaseUrl) || image;
         const fileSize = enclosure ? Number(enclosure.getAttribute("length")) || 0 : 0;
         const idSeed = guid ? "guid:" + guid : (audioUrl ? "audio:" + audioUrl : "meta:" + titleText + "|" + date + "|" + index);
         return normalizeEpisode({
@@ -934,15 +1045,27 @@
       return {show: actualShow, episodes, source, truncated: Boolean(truncated)};
     }
 
+    async function waitForAppleRequestSlot() {
+      const previous = appleRequestQueue;
+      let release;
+      appleRequestQueue = new Promise(resolve => { release = resolve; });
+      await previous;
+      try {
+        const waitMs = Math.max(0, APPLE_MIN_REQUEST_INTERVAL_MS - (Date.now() - lastAppleRequestAt));
+        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
+        lastAppleRequestAt = Date.now();
+      } finally {
+        release();
+      }
+    }
+
     async function fetchAppleJson(url, timeoutMs) {
       const targetUrl = safeHttpUrl(url);
       if (!targetUrl) throw new Error("Apple's catalogue URL is invalid.");
 
-      // Apple documents an approximate 20-request-per-minute limit. Apply
-      // spacing to both search and lookup calls so this page does not burst.
-      const waitMs = Math.max(0, APPLE_MIN_REQUEST_INTERVAL_MS - (Date.now() - lastAppleRequestAt));
-      if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
-      lastAppleRequestAt = Date.now();
+      // Reserve request starts in sequence so concurrent searches and lookups
+      // respect Apple's approximate 20-request-per-minute limit.
+      await waitForAppleRequestSlot();
 
       // Apple documents JSONP for cross-site searches. A dynamically added
       // script is not subject to fetch() CORS restrictions, including when
@@ -995,6 +1118,7 @@
     }
 
     function cacheSearchResults(cache, cacheKey, results) {
+      cache.delete(cacheKey);
       cache.set(cacheKey, {savedAt: Date.now(), results});
       // Keep each in-memory cache bounded during long sessions.
       if (cache.size > 40) cache.delete(cache.keys().next().value);
@@ -1003,7 +1127,14 @@
 
     function getCachedSearchResults(cache, cacheKey) {
       const cached = cache.get(cacheKey);
-      return cached && Date.now() - cached.savedAt < SEARCH_CACHE_TTL_MS ? cached.results : null;
+      if (!cached) return null;
+      if (Date.now() - cached.savedAt >= SEARCH_CACHE_TTL_MS) {
+        cache.delete(cacheKey);
+        return null;
+      }
+      cache.delete(cacheKey);
+      cache.set(cacheKey, cached);
+      return cached.results;
     }
 
     async function searchApple(query) {
@@ -1022,7 +1153,7 @@
       const results = data.results
         .filter(item => item && (item.kind === "podcast" || item.wrapperType === "track"))
         .map(item => normalizeShow({...item, source: "apple"}))
-        .filter(item => item.title && item.feedUrl);
+        .filter(item => item.title && (item.feedUrl || item.appleId));
       return cacheSearchResults(appleSearchCache, cacheKey, results);
     }
 
@@ -1071,7 +1202,9 @@
       const merged = new Map();
       const allResults = [...appleResults, ...podcastIndexResults];
       for (const show of allResults) {
-        const feedKey = show.feedUrl ? show.feedUrl.replace(/\/+$/, "").toLowerCase() : "";
+        // URL parsing already normalizes the hostname. Preserve path and
+        // query case because servers may treat those components as case-sensitive.
+        const feedKey = show.feedUrl || "";
         const fallbackKey = show.appleId ? "apple:" + show.appleId :
           "show:" + (show.title + "|" + show.artist).toLocaleLowerCase();
         const key = feedKey || fallbackKey;
@@ -1121,8 +1254,8 @@
         podcastIndexCount: indexResults.length,
         duplicateCount: appleResults.length + indexResults.length - results.length,
         failures: [
-          appleOutcome.status === "rejected" ? "Apple Podcasts unavailable: " + (appleOutcome.reason.message || "request failed") : "",
-          indexOutcome.status === "rejected" ? "Podcast Index unavailable: " + (indexOutcome.reason.message || "request failed") : ""
+          appleOutcome.status === "rejected" ? "Apple Podcasts unavailable: " + (appleOutcome.reason && appleOutcome.reason.message || "request failed") : "",
+          indexOutcome.status === "rejected" ? "Podcast Index unavailable: " + (indexOutcome.reason && indexOutcome.reason.message || "request failed") : ""
         ].filter(Boolean)
       };
     }
@@ -1156,6 +1289,10 @@
         return;
       }
       const existingIndex = state.library.findIndex(item => item.id === normalized.id || (normalized.feedUrl && item.feedUrl === normalized.feedUrl));
+      if (existingIndex < 0 && state.library.length >= MAX_SUBSCRIPTIONS) {
+        setStatus(elements.playerStatus, "Your library has reached the " + MAX_SUBSCRIPTIONS + "-podcast limit. Remove a subscription before adding another.", true);
+        return false;
+      }
       if (existingIndex >= 0) {
         const existing = state.library[existingIndex];
         state.library[existingIndex] = {...existing, ...normalized, id: existing.id};
@@ -1167,6 +1304,7 @@
       renderLibrary();
 
       elements.librarySection.open = true;
+      return true;
     }
 
     function unsubscribeShow(showId) {
@@ -1256,16 +1394,19 @@
     }
 
     function syncSearchSubscribeButtons() {
+      const subscribedIds = new Set(state.library.map(saved => saved.id));
+      const subscribedFeeds = new Set(state.library.map(saved => saved.feedUrl).filter(Boolean));
       elements.searchResults.querySelectorAll("button[data-subscribe-show-id]").forEach(button => {
-        const subscribed = state.library.some(saved => saved.id === button.dataset.subscribeShowId ||
-          (button.dataset.subscribeFeed && saved.feedUrl === button.dataset.subscribeFeed));
+        const subscribed = subscribedIds.has(button.dataset.subscribeShowId) ||
+          (button.dataset.subscribeFeed && subscribedFeeds.has(button.dataset.subscribeFeed));
         button.textContent = subscribed ? "Subscribed" : "Subscribe";
-        button.disabled = subscribed;
+        button.disabled = Boolean(subscribed);
       });
     }
 
     function createShowCard(show, inLibrary, existingPanel) {
       const normalized = normalizeShow(show);
+      const alreadySubscribed = !inLibrary && isSubscribed(normalized);
       const item = makeElement("li");
       const card = makeElement("article");
       const image = makeImage(normalized.artwork, normalized.title + " artwork", inLibrary ? 48 : 80);
@@ -1329,11 +1470,11 @@
         remove.addEventListener("click", () => unsubscribeShow(normalized.id));
         actions.push(remove);
       } else {
-        const subscribe = makeElement("button", isSubscribed(normalized) ? "Subscribed" : "Subscribe");
+        const subscribe = makeElement("button", alreadySubscribed ? "Subscribed" : "Subscribe");
         subscribe.type = "button";
         subscribe.dataset.subscribeShowId = normalized.id;
         subscribe.dataset.subscribeFeed = normalized.feedUrl;
-        subscribe.disabled = isSubscribed(normalized);
+        subscribe.disabled = alreadySubscribed;
         subscribe.addEventListener("click", () => subscribeShow(normalized));
         actions.push(subscribe);
       }
@@ -1401,11 +1542,13 @@
       elements.libraryEmpty.hidden = state.library.length > 0;
       const query = elements.libraryFilter.value.trim().toLowerCase();
       const sorted = [...state.library].filter(show => !query || (show.title + " " + show.artist).toLowerCase().includes(query)).sort((a, b) => a.title.localeCompare(b.title));
+      const fragment = document.createDocumentFragment();
       sorted.forEach(show => {
         const card = createShowCard(show, true, libraryPanels.get(show.id));
-        elements.libraryList.append(card.item);
+        fragment.append(card.item);
         libraryPanels.set(show.id, card.panel);
       });
+      elements.libraryList.append(fragment);
       syncSearchSubscribeButtons();
       placePlayerUnderEpisode();
     }
@@ -1423,6 +1566,7 @@
 
       try {
         const feedUrl = await lookupAppleFeed(normalized);
+        if (token !== panel.loadToken) return;
         if (!feedUrl) throw new Error("Apple did not provide an RSS feed URL for this show. Try adding its public feed address manually.");
         panel.show = {...normalized, feedUrl};
         const savedShow = state.library.find(item => item.id === normalized.id);
@@ -1435,12 +1579,13 @@
         const cached = cachedResult && Date.now() - cachedAt < LATEST_CACHE_TTL_MS ? cachedResult : null;
         let result;
         if (cached) {
+          cacheFeed(feedUrl, cachedResult);
           result = cached;
         } else if (settings.prefetched) {
           result = settings.prefetched;
         } else {
           const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
-          result = parseFeed(fetched.documentXml, panel.show, fetched.source, fetched.truncated);
+          result = parseFeed(fetched.documentXml, panel.show, fetched.source, fetched.truncated, fetched.entries, fetched.baseUrl);
         }
         if (token !== panel.loadToken) return;
         cacheFeed(feedUrl, result);
@@ -1499,17 +1644,15 @@
       return hours ? hours + ":" + String(minutes).padStart(2, "0") + ":" + String(remainder).padStart(2, "0") : minutes + ":" + String(remainder).padStart(2, "0");
     }
 
-    function isFavorite(episode) {
-      return state.favorites.some(item => item.id === episode.id);
-    }
-
     function renderEpisodes(panel) {
       const filter = panel.filter ? panel.filter.value.trim().toLowerCase() : "";
+      const favoriteIds = new Set(state.favorites.map(item => item.id));
       const visibleEpisodes = panel.episodes.filter(episode => {
         if (!filter) return true;
         return (episode.title + " " + episode.description + " " + episode.date).toLowerCase().includes(filter);
       });
       panel.list.replaceChildren();
+      const fragment = document.createDocumentFragment();
       visibleEpisodes.forEach(episode => {
         const item = makeElement("li");
         item.dataset.episodeId = episode.id;
@@ -1525,7 +1668,6 @@
         disclosure.append(title);
 
         const expandedContent = makeElement("div");
-        if (panel.includeShowTitle) expandedContent.append(makeElement("p", "Podcast: " + episode.showTitle));
         expandedContent.append(makeElement("p", formatDate(episode.date) + " | " + formatDuration(episode.duration)));
         if (episode.description) expandedContent.append(makeElement("p", episode.description));
 
@@ -1542,7 +1684,7 @@
         queue.addEventListener("click", () => addToQueue(episode));
         actions.push(queue);
 
-        const save = makeElement("button", isFavorite(episode) ? "Remove Saved Episode" : "Save Episode");
+        const save = makeElement("button", favoriteIds.has(episode.id) ? "Remove Saved Episode" : "Save Episode");
         save.type = "button";
         save.addEventListener("click", () => toggleFavorite(episode));
         actions.push(save);
@@ -1571,14 +1713,15 @@
 
         const separator = document.createElement("hr");
         item.append(disclosure, separator);
-        panel.list.append(item);
+        fragment.append(item);
       });
-      if (!visibleEpisodes.length && !panel.emptyMessage) {
+      if (!visibleEpisodes.length) {
         const emptyMessage = panel.episodes.length
           ? "No episodes match this filter."
           : "No episodes are available in this feed.";
-        panel.list.append(makeElement("li", emptyMessage));
+        fragment.append(makeElement("li", emptyMessage));
       }
+      panel.list.append(fragment);
       placePlayerUnderEpisode();
     }
 
@@ -1599,7 +1742,7 @@
       if (current) {
         const rows = document.querySelectorAll("li[data-episode-id]");
         for (const row of rows) {
-          if (row.dataset.episodeId === current.id && row.dataset.audioUrl === current.audioUrl && rowIsInOpenSection(row)) {
+          if (row.dataset.episodeId === current.id && rowIsInOpenSection(row)) {
             destination = row;
             break;
           }
@@ -1624,7 +1767,11 @@
     }
 
     function persistableEpisode(episode) {
-      return normalizeEpisode(episode);
+      const normalized = normalizeEpisode(episode);
+      // Long descriptions remain available in the live feed panel. Saved copies
+      // only need a short excerpt for restoration and backup portability.
+      normalized.description = normalized.description.slice(0, 300);
+      return normalized;
     }
 
     function addToQueue(episode) {
@@ -1633,6 +1780,10 @@
       const exists = state.queue.some(item => item.id === normalized.id);
       if (exists) {
         setStatus(elements.playerStatus, "That episode is already in the queue.");
+        return;
+      }
+      if (state.queue.length >= MAX_QUEUE_EPISODES) {
+        setStatus(elements.playerStatus, "Your queue has reached the " + MAX_QUEUE_EPISODES + "-episode limit.", true);
         return;
       }
       state.queue.push(normalized);
@@ -1649,6 +1800,10 @@
         return;
       }
       let index = state.queue.findIndex(item => item.id === normalized.id);
+      if (index < 0 && state.queue.length >= MAX_QUEUE_EPISODES) {
+        setStatus(elements.playerStatus, "Your queue has reached the " + MAX_QUEUE_EPISODES + "-episode limit.", true);
+        return;
+      }
       if (index < 0) {
         state.queue.push(normalized);
         index = state.queue.length - 1;
@@ -1663,6 +1818,8 @@
       if (elements.audio !== targetMedia) {
         const previousMedia = elements.audio;
         if (!previousMedia.paused) previousMedia.pause();
+        previousMedia.removeAttribute("src");
+        previousMedia.load();
         previousMedia.hidden = true;
         targetMedia.hidden = false;
         activeMedia = targetMedia;
@@ -1678,8 +1835,12 @@
       const generation = ++playbackGeneration;
       if (resumeAt !== undefined && Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0) {
         const seekOnMetadata = () => {
+          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) {
+            media.removeEventListener("loadedmetadata", seekOnMetadata);
+            return;
+          }
+          if (!isCurrentPlaybackSource()) return;
           media.removeEventListener("loadedmetadata", seekOnMetadata);
-          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) return;
           const duration = media.duration;
           if (Number.isFinite(duration) && duration > 0) media.currentTime = Math.min(Number(resumeAt), Math.max(0, duration - 1));
         };
@@ -1705,6 +1866,7 @@
     function renderQueue() {
       elements.queueList.replaceChildren();
       elements.queueEmpty.hidden = state.queue.length > 0;
+      const fragment = document.createDocumentFragment();
       state.queue.forEach((episode, index) => {
         const item = makeElement("li");
         const card = makeElement("article");
@@ -1731,8 +1893,9 @@
         actions.push(remove);
         card.append(makeActionGroup("Queue actions", actions));
         item.append(card, document.createElement("hr"));
-        elements.queueList.append(item);
+        fragment.append(item);
       });
+      elements.queueList.append(fragment);
     }
 
     function moveQueueItem(index, direction) {
@@ -1809,10 +1972,10 @@
 
     function updateProgress(episode, currentTime, duration) {
       if (!episode || episodeHasBeenPlayed(episode)) return;
-      const entry = {episode: persistableEpisode(episode), currentTime: Math.max(0, Number(currentTime) || 0), duration: Math.max(0, Number(duration) || 0), updatedAt: new Date().toISOString()};
+      const entry = {episode: persistableEpisode(episode), currentTime: nonnegativeNumber(currentTime), duration: nonnegativeNumber(duration), updatedAt: new Date().toISOString()};
       state.inProgress = (state.inProgress || []).filter(item => item.episode.id !== episode.id);
       if (entry.currentTime > 0) state.inProgress.unshift(entry);
-      state.inProgress = state.inProgress.slice(0, 200);
+      state.inProgress = state.inProgress.slice(0, MAX_IN_PROGRESS_EPISODES);
       saveState();
       renderProgress();
     }
@@ -1820,7 +1983,11 @@
     function markEpisodePlayed(episode, played) {
       const normalized = persistableEpisode(episode);
       if (played) {
+        playedEpisodeIdSet.delete(normalized.id);
         playedEpisodeIdSet.add(normalized.id);
+        while (playedEpisodeIdSet.size > MAX_PLAYED_EPISODES) {
+          playedEpisodeIdSet.delete(playedEpisodeIdSet.values().next().value);
+        }
         state.playedEpisodeIds = [...playedEpisodeIdSet];
         state.inProgress = (state.inProgress || []).filter(item => item.episode.id !== normalized.id);
         state.history = state.history.filter(item => item.id !== normalized.id);
@@ -1833,7 +2000,9 @@
       }
       saveState();
       renderHistory(); renderProgress(); renderNowPlaying();
-      for (const panel of showPanels) if (panel.loaded) renderEpisodes(panel);
+      for (const panel of showPanels) {
+        if (panel.loaded && panel.episodes.some(item => item.id === normalized.id)) renderEpisodes(panel);
+      }
     }
 
     function recordHistory(episode) {
@@ -1846,6 +2015,7 @@
       elements.progressList.replaceChildren();
       const entries = (state.inProgress || []).filter(item => item.episode && !episodeHasBeenPlayed(item.episode));
       elements.progressEmpty.hidden = entries.length > 0;
+      const fragment = document.createDocumentFragment();
       entries.forEach(entry => {
         const item = makeElement("li");
         const title = makeElement("strong", entry.episode.title);
@@ -1864,22 +2034,28 @@
         const resume = makeElement("button", "Resume"); resume.type = "button"; resume.addEventListener("click", () => playEpisode(entry.episode, entry.currentTime));
         const played = makeElement("button", "Mark Played"); played.type = "button"; played.addEventListener("click", () => markEpisodePlayed(entry.episode, true));
         item.append(makeActionGroup("In-progress actions", [resume, played]), document.createElement("hr"));
-        elements.progressList.append(item);
+        fragment.append(item);
       });
+      elements.progressList.append(fragment);
     }
 
     function toggleFavorite(episode) {
-      const index = state.favorites.findIndex(item => item.id === episode.id);
+      const normalized = persistableEpisode(episode);
+      const index = state.favorites.findIndex(item => item.id === normalized.id);
       if (index >= 0) {
         state.favorites.splice(index, 1);
       } else {
-        state.favorites.unshift(persistableEpisode(episode));
+        if (state.favorites.length >= MAX_FAVORITE_EPISODES) {
+          setStatus(elements.playerStatus, "Your saved episodes have reached the " + MAX_FAVORITE_EPISODES + "-episode limit.", true);
+          return;
+        }
+        state.favorites.unshift(normalized);
         elements.favoritesSection.open = true;
       }
       saveState();
       renderFavorites();
       for (const panel of showPanels) {
-        if (panel.loaded) renderEpisodes(panel);
+        if (panel.loaded && panel.episodes.some(item => item.id === normalized.id)) renderEpisodes(panel);
       }
     }
 
@@ -1887,17 +2063,11 @@
       return playedEpisodeIdSet.has(episode.id) || state.history.some(item => item && item.id === episode.id);
     }
 
-    function episodeReleaseTime(episode) {
-      if (!episode.date) return Number.NEGATIVE_INFINITY;
-      const timestamp = Date.parse(episode.date);
-      return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
-    }
-
-
 
     function renderFavorites() {
       elements.favoritesList.replaceChildren();
       elements.favoritesEmpty.hidden = state.favorites.length > 0;
+      const fragment = document.createDocumentFragment();
       state.favorites.forEach(episode => {
         const item = makeElement("li");
         const card = makeElement("article");
@@ -1912,13 +2082,15 @@
         remove.addEventListener("click", () => toggleFavorite(episode));
         card.append(makeActionGroup("Saved episode actions", [play, remove]));
         item.append(card, document.createElement("hr"));
-        elements.favoritesList.append(item);
+        fragment.append(item);
       });
+      elements.favoritesList.append(fragment);
     }
 
     function renderHistory() {
       elements.historyList.replaceChildren();
       elements.historyEmpty.hidden = state.history.length > 0;
+      const fragment = document.createDocumentFragment();
       state.history.forEach(episode => {
         const item = makeElement("li");
         const card = makeElement("article");
@@ -1930,8 +2102,9 @@
         play.addEventListener("click", () => playEpisode(episode));
         card.append(makeActionGroup("Listening history actions", [play]));
         item.append(card, document.createElement("hr"));
-        elements.historyList.append(item);
+        fragment.append(item);
       });
+      elements.historyList.append(fragment);
     }
 
     async function handleSearch(event) {
@@ -1950,7 +2123,7 @@
         renderSearchResults(search.results);
         const sourceSummary = "Apple: " + search.appleCount + "; Podcast Index: " + search.podcastIndexCount + "; duplicates merged: " + search.duplicateCount + ".";
         const partialWarning = search.failures.length ? " " + search.failures.join(" ") : "";
-        setStatus(elements.searchStatus, search.results.length + " unique podcasts with public feed addresses found. " + sourceSummary + partialWarning, search.failures.length > 0);
+        setStatus(elements.searchStatus, search.results.length + " unique podcasts found. " + sourceSummary + partialWarning, search.failures.length > 0);
       } catch (error) {
         if (token !== searchToken) return;
         setStatus(elements.searchStatus, error.message || "Podcast search failed. Check your internet connection and try again.", true);
@@ -1970,11 +2143,14 @@
       setStatus(elements.rssStatus, "Reading feed and adding the podcast…");
       try {
         const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
-        const parsed = parseFeed(fetched.documentXml, show, fetched.source, fetched.truncated);
+        const parsed = parseFeed(fetched.documentXml, show, fetched.source, fetched.truncated, fetched.entries, fetched.baseUrl);
         if (!parsed.episodes.length) throw new Error("The feed opened, but it did not contain any podcast episodes.");
+        if (!subscribeShow(parsed.show)) {
+          setStatus(elements.rssStatus, "Your library has reached the " + MAX_SUBSCRIPTIONS + "-podcast limit.", true);
+          return;
+        }
         cacheFeed(feedUrl, parsed);
         latestFeedCacheTimestamps.set(feedUrl, Date.now());
-        subscribeShow(parsed.show);
         elements.rssUrl.value = "";
         elements.rssSection.open = false;
         elements.librarySection.open = true;
@@ -2012,13 +2188,27 @@
       const outlines = [...xml.getElementsByTagName("outline")];
       const imported = outlines.map(node => ({title: node.getAttribute("title") || node.getAttribute("text") || "Imported Podcast", feedUrl: node.getAttribute("xmlUrl") || node.getAttribute("url") || "", appleUrl: node.getAttribute("htmlUrl") || "", source: "OPML import"})).filter(show => safeHttpUrl(show.feedUrl));
       if (!imported.length) throw new Error("No valid podcast RSS addresses were found in that OPML file.");
+      const existingFeedUrls = new Set(state.library.map(show => show.feedUrl).filter(Boolean));
+      const existingShowIds = new Set(state.library.map(show => show.id));
       let added = 0;
+      let skippedByLimit = 0;
       for (const raw of imported) {
         const show = normalizeShow(raw);
-        if (!state.library.some(item => item.feedUrl === show.feedUrl || item.id === show.id)) {state.library.push(show); added += 1;}
+        if (!existingFeedUrls.has(show.feedUrl) && !existingShowIds.has(show.id)) {
+          existingFeedUrls.add(show.feedUrl);
+          existingShowIds.add(show.id);
+          if (state.library.length >= MAX_SUBSCRIPTIONS) {
+            skippedByLimit += 1;
+            continue;
+          }
+          state.library.push(show);
+          added += 1;
+        }
       }
       saveState(); renderLibrary(); elements.librarySection.open = true;
-      setText(elements.opmlStatus, "Imported " + added + " new subscriptions. " + (imported.length - added) + " duplicates were skipped.");
+      const duplicateCount = imported.length - added - skippedByLimit;
+      setText(elements.opmlStatus, "Imported " + added + " new subscriptions. " + duplicateCount + " duplicates were skipped." +
+        (skippedByLimit ? " " + skippedByLimit + " were skipped because the " + MAX_SUBSCRIPTIONS + "-podcast library limit was reached." : ""));
     }
 
     function exportBackup() {
@@ -2035,18 +2225,31 @@
       }
       if (!Array.isArray(raw.library) || !Array.isArray(raw.queue)) throw new Error("This file does not appear to be a compatible podcast player backup.");
       const clean = emptyState();
-      clean.library = raw.library.map(item => {
+      const libraryFeedUrls = new Set();
+      const libraryIds = new Set();
+      for (const item of raw.library) {
         if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid podcast subscription.");
         const show = normalizeShow(item);
         if (!show.feedUrl && !show.appleId) throw new Error("A podcast subscription is missing its feed address and catalogue ID.");
-        return show;
-      });
-      const normalizeEpisodes = (items, key) => (items || []).map(item => {
-        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid episode in " + key + ".");
-        return persistableEpisode(normalizeEpisode(item));
-      });
-      clean.queue = normalizeEpisodes(raw.queue, "queue");
-      clean.favorites = normalizeEpisodes(raw.favorites, "favorites");
+        if ((show.feedUrl && libraryFeedUrls.has(show.feedUrl)) || libraryIds.has(show.id)) continue;
+        clean.library.push(show);
+        libraryIds.add(show.id);
+        if (show.feedUrl) libraryFeedUrls.add(show.feedUrl);
+        if (clean.library.length >= MAX_SUBSCRIPTIONS) break;
+      }
+      const normalizeEpisodes = (items, key, limit, requireAudio) => {
+        const seenIds = new Set();
+        return (items || []).map(item => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid episode in " + key + ".");
+          return persistableEpisode(normalizeEpisode(item));
+        }).filter(episode => {
+          if (!episode.id || seenIds.has(episode.id) || (requireAudio && !episode.audioUrl)) return false;
+          seenIds.add(episode.id);
+          return true;
+        }).slice(0, limit);
+      };
+      clean.queue = normalizeEpisodes(raw.queue, "queue", MAX_QUEUE_EPISODES, true);
+      clean.favorites = normalizeEpisodes(raw.favorites, "favorites", MAX_FAVORITE_EPISODES, false);
       const historyIds = new Set();
       clean.history = (raw.history || []).map(item => {
         if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid episode in history.");
@@ -2055,20 +2258,46 @@
         historyIds.add(episode.id);
         return {...episode, playedAt: String(item.playedAt || "")};
       }).filter(Boolean).slice(0, MAX_HISTORY);
-      clean.inProgress = (raw.inProgress || []).map(item => {
+      const progressByEpisode = new Map();
+      for (const item of raw.inProgress || []) {
         if (!item || typeof item !== "object" || Array.isArray(item) || !item.episode || typeof item.episode !== "object" || Array.isArray(item.episode) || typeof item.episode.id !== "string" || !item.episode.id.trim()) throw new Error("The backup contains an invalid listening-progress entry.");
         const currentTime = Number(item.currentTime), duration = Number(item.duration);
         if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) throw new Error("The backup contains invalid listening-progress times.");
-        return {episode: persistableEpisode(normalizeEpisode(item.episode)), currentTime, duration, updatedAt: String(item.updatedAt || "")};
-      });
+        const episode = persistableEpisode(normalizeEpisode(item.episode));
+        if (!episode.audioUrl) continue;
+        const entry = {
+          episode,
+          currentTime: duration > 0 ? Math.min(currentTime, duration) : currentTime,
+          duration,
+          updatedAt: String(item.updatedAt || "")
+        };
+        const existing = progressByEpisode.get(episode.id);
+        if (!existing || (Date.parse(entry.updatedAt) || 0) > (Date.parse(existing.updatedAt) || 0)) progressByEpisode.set(episode.id, entry);
+      }
+      clean.inProgress = [...progressByEpisode.values()]
+        .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
+        .slice(0, MAX_IN_PROGRESS_EPISODES);
       if (raw.playedEpisodeIds != null && (!Array.isArray(raw.playedEpisodeIds) || raw.playedEpisodeIds.some(id => typeof id !== "string" || !id.trim()))) throw new Error("The backup contains invalid played-episode IDs.");
       clean.playedEpisodeIds = raw.playedEpisodeIds != null
-        ? [...new Set(raw.playedEpisodeIds)]
+        ? [...new Set(raw.playedEpisodeIds.slice().reverse())].reverse().slice(-MAX_PLAYED_EPISODES)
         : clean.history.map(item => item.id);
       if (raw.diagnostics != null && !Array.isArray(raw.diagnostics)) throw new Error("The backup contains invalid diagnostics.");
-      clean.diagnostics = (raw.diagnostics || []).filter(item => item && typeof item === "object").slice(-100);
+      clean.diagnostics = (raw.diagnostics || [])
+        .filter(item => item && typeof item === "object" && !Array.isArray(item))
+        .map(item => ({
+          feedUrl: safeHttpUrl(item.feedUrl || ""),
+          message: String(item.message || "Unknown event").slice(0, 1000),
+          kind: String(item.kind || "event").slice(0, 100),
+          at: typeof item.at === "string" ? item.at : ""
+        }))
+        .slice(-100);
       if (raw.expandedSections != null && (typeof raw.expandedSections !== "object" || Array.isArray(raw.expandedSections))) throw new Error("The backup contains invalid interface settings.");
-      clean.expandedSections = raw.expandedSections || {};
+      clean.expandedSections = {};
+      if (raw.expandedSections) {
+        for (const [key, value] of Object.entries(raw.expandedSections)) {
+          if (/^[a-z][a-z0-9-]{0,80}$/i.test(key) && typeof value === "boolean") clean.expandedSections[key] = value;
+        }
+      }
       if (raw.currentEpisode != null && (typeof raw.currentEpisode !== "object" || Array.isArray(raw.currentEpisode))) throw new Error("The backup contains an invalid current episode.");
       if (raw.currentEpisode && (typeof raw.currentEpisode.id !== "string" || !raw.currentEpisode.id.trim() || !safeHttpUrl(raw.currentEpisode.audioUrl))) throw new Error("The backup contains an invalid current episode.");
       clean.currentEpisode = raw.currentEpisode ? persistableEpisode(normalizeEpisode(raw.currentEpisode)) : null;
@@ -2083,6 +2312,7 @@
       const parsed = JSON.parse(await readFileText(file, MAX_IMPORT_BYTES));
       const raw = parsed && parsed.data ? parsed.data : parsed;
       const incoming = validateBackupData(raw);
+      let skippedSubscriptionsByLimit = 0;
       if (elements.replaceBackup.checked) {
         feedCache.clear(); latestFeedCacheTimestamps.clear();
         for (const panel of libraryPanels.values()) {
@@ -2097,34 +2327,77 @@
           for (const item of extra || []) if (item && item.id && !map.has(item.id)) map.set(item.id, item);
           return [...map.values()];
         };
-        const subscriptionsByFeed = new Map((state.library || []).filter(item => item.feedUrl).map(item => [item.feedUrl, item]));
         const mergedLibrary = [...(state.library || [])];
+        const subscriptionIndexesByFeed = new Map();
+        const subscriptionIndexesById = new Map();
+        const incomingById = new Map(incoming.library.map(show => [show.id, show]));
+        mergedLibrary.forEach((show, index) => {
+          if (show.feedUrl) subscriptionIndexesByFeed.set(show.feedUrl, index);
+          subscriptionIndexesById.set(show.id, index);
+        });
         for (const show of incoming.library) {
-          const existing = subscriptionsByFeed.get(show.feedUrl) || mergedLibrary.find(item => item.id === show.id);
-          if (existing) {
-            const index = mergedLibrary.indexOf(existing);
-            mergedLibrary[index] = {...existing, ...show, id: existing.id};
+          const idIndex = subscriptionIndexesById.get(show.id);
+          const feedIndex = show.feedUrl ? subscriptionIndexesByFeed.get(show.feedUrl) : undefined;
+          const index = idIndex === undefined ? feedIndex : idIndex;
+          if (index !== undefined) {
+            const existing = mergedLibrary[index];
+            const updated = {...existing, ...show, id: existing.id};
+            const feedOwnerIndex = show.feedUrl ? subscriptionIndexesByFeed.get(show.feedUrl) : undefined;
+            if (feedOwnerIndex !== undefined && feedOwnerIndex !== index) {
+              const feedOwner = mergedLibrary[feedOwnerIndex];
+              const ownerUpdate = feedOwner && incomingById.get(feedOwner.id);
+              const ownerWillMove = ownerUpdate && ownerUpdate.feedUrl !== show.feedUrl;
+              if (ownerWillMove) subscriptionIndexesByFeed.set(show.feedUrl, index);
+              else updated.feedUrl = existing.feedUrl;
+            }
+            if (existing.feedUrl && existing.feedUrl !== updated.feedUrl && subscriptionIndexesByFeed.get(existing.feedUrl) === index) {
+              subscriptionIndexesByFeed.delete(existing.feedUrl);
+            }
+            mergedLibrary[index] = updated;
+            subscriptionIndexesById.set(updated.id, index);
+            subscriptionIndexesById.set(show.id, index);
+            if (updated.feedUrl) {
+              const mappedIndex = subscriptionIndexesByFeed.get(updated.feedUrl);
+              if (mappedIndex === undefined || mappedIndex === index) subscriptionIndexesByFeed.set(updated.feedUrl, index);
+            }
           } else {
+            if (mergedLibrary.length >= MAX_SUBSCRIPTIONS) {
+              skippedSubscriptionsByLimit += 1;
+              continue;
+            }
+            const index = mergedLibrary.length;
             mergedLibrary.push(show);
-            if (show.feedUrl) subscriptionsByFeed.set(show.feedUrl, show);
+            subscriptionIndexesById.set(show.id, index);
+            if (show.feedUrl) subscriptionIndexesByFeed.set(show.feedUrl, index);
           }
         }
         state.library = mergedLibrary;
-        for (const key of ["queue", "favorites", "history"]) state[key] = mergeById(state[key], incoming[key]);
+        state.queue = mergeById(state.queue, incoming.queue).slice(0, MAX_QUEUE_EPISODES);
+        state.favorites = mergeById(state.favorites, incoming.favorites).slice(0, MAX_FAVORITE_EPISODES);
+        state.history = mergeById(state.history, incoming.history).slice(0, MAX_HISTORY);
         const progressByEpisode = new Map((state.inProgress || []).map(item => [item.episode.id, item]));
         for (const item of incoming.inProgress) {
           const id = item.episode.id, existing = progressByEpisode.get(id);
           if (!existing || (Date.parse(item.updatedAt) || 0) > (Date.parse(existing.updatedAt) || 0)) progressByEpisode.set(id, item);
         }
-        state.inProgress = [...progressByEpisode.values()].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)).slice(0, 200);
-        state.playedEpisodeIds = [...new Set([...(state.playedEpisodeIds || []), ...incoming.playedEpisodeIds])];
+        state.inProgress = [...progressByEpisode.values()].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)).slice(0, MAX_IN_PROGRESS_EPISODES);
+        const mergedPlayedIds = new Set([...(state.playedEpisodeIds || []), ...incoming.playedEpisodeIds]);
+        while (mergedPlayedIds.size > MAX_PLAYED_EPISODES) {
+          mergedPlayedIds.delete(mergedPlayedIds.values().next().value);
+        }
+        state.playedEpisodeIds = [...mergedPlayedIds];
         state.diagnostics = [...(state.diagnostics || []), ...incoming.diagnostics].slice(-100);
         if (!state.currentEpisode && incoming.currentEpisode) {state.currentEpisode = incoming.currentEpisode; state.currentTime = incoming.currentTime;}
       }
       playedEpisodeIdSet.clear();
       for (const id of state.playedEpisodeIds || []) playedEpisodeIdSet.add(id);
       saveState(); renderLibrary(); renderQueue(); renderFavorites(); renderHistory(); renderProgress(); renderDiagnostics(); restorePlayer();
-      setText(elements.backupStatus, elements.replaceBackup.checked ? "Backup restored, replacing current data." : "Backup merged with current data. Existing items were retained and duplicates combined.");
+      setText(elements.backupStatus, elements.replaceBackup.checked
+        ? "Backup restored, replacing current data."
+        : "Backup merged with current data. Existing items were retained and duplicates combined." +
+          (skippedSubscriptionsByLimit
+            ? " " + skippedSubscriptionsByLimit + " subscriptions were skipped because the " + MAX_SUBSCRIPTIONS + "-podcast library limit was reached."
+            : ""));
     }
 
     function removePlayedFromQueue() {
@@ -2145,18 +2418,36 @@
       elements.playbackSpeed.value = String(rate);
       playbackGeneration += 1;
       const generation = playbackGeneration;
+      const previousMedia = activeMedia;
+      activeMedia = null;
+      if (previousMedia && !previousMedia.paused) {
+        suppressPauseFor = previousMedia;
+        previousMedia.pause();
+      }
+      for (const media of [elements.audioElement, elements.video]) {
+        if (media !== previousMedia && !media.paused) media.pause();
+        media.removeAttribute("src");
+        media.load();
+      }
+      elements.audioElement.hidden = false;
+      elements.video.hidden = true;
+      activeMedia = elements.audioElement;
       if (state.currentEpisode && safeHttpUrl(state.currentEpisode.audioUrl)) {
         state.currentEpisode = normalizeEpisode(state.currentEpisode);
         const targetMedia = state.currentEpisode.mediaType === "video" ? elements.video : elements.audioElement;
-        elements.audio.hidden = true;
-        targetMedia.hidden = false;
+        elements.audioElement.hidden = targetMedia !== elements.audioElement;
+        elements.video.hidden = targetMedia !== elements.video;
         activeMedia = targetMedia;
         targetMedia.playbackRate = rate;
         currentQueueIndex = state.queue.findIndex(item => item.id === state.currentEpisode.id);
         const episodeId = state.currentEpisode.id, resumeAt = Number(state.currentTime) || 0;
         const restorePosition = () => {
+          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== episodeId) {
+            targetMedia.removeEventListener("loadedmetadata", restorePosition);
+            return;
+          }
+          if (!isCurrentPlaybackSource()) return;
           targetMedia.removeEventListener("loadedmetadata", restorePosition);
-          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== episodeId) return;
           if (Number.isFinite(targetMedia.duration) && targetMedia.duration > 0 && resumeAt > 0 && resumeAt < targetMedia.duration) targetMedia.currentTime = resumeAt;
         };
         targetMedia.addEventListener("loadedmetadata", restorePosition);
@@ -2165,14 +2456,6 @@
         renderNowPlaying();
       } else {
         currentQueueIndex = -1;
-        for (const media of [elements.audioElement, elements.video]) {
-          media.pause();
-          media.removeAttribute("src");
-          media.load();
-        }
-        elements.audioElement.hidden = false;
-        elements.video.hidden = true;
-        activeMedia = elements.audioElement;
         renderNowPlaying();
       }
     }

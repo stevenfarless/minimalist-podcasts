@@ -6,7 +6,7 @@ The project began as a small, 100% AI-assisted vibe-coding experiment. It grew i
 
 ## Features
 
-- Search Apple Podcasts and Podcast Index through the PinePods hosted search service.
+- Search Apple Podcasts directly and search Podcast Index through the PinePods hosted search service.
 - Merge catalogue results and remove duplicate shows.
 - Add podcasts manually using a public RSS or Atom feed address.
 - Browse and stream audio or video episodes from subscribed RSS and Atom feeds.
@@ -37,7 +37,7 @@ An internet connection is required for catalogue search, feed retrieval, and med
 
 Subscriptions, queue contents, favorites, listening history, playback positions, and preferences are stored in the browser's local storage for the current site origin. Clearing browser site data can erase this information. Use the JSON backup feature before moving browsers or clearing site data.
 
-Podcast searches are sent to Apple Podcasts and the PinePods hosted search service. RSS requests may use the public `proxy.cors.dev` CORS proxy when a publisher's feed does not permit direct browser access. Audio is streamed from the podcast publisher or its hosting provider. These external services can receive request metadata such as IP address and requested URLs. The project does not operate its own server or user database.
+Apple Podcasts searches go directly to Apple. Podcast Index searches go through the PinePods hosted search service. Publisher-supplied HTML descriptions are reduced to text using an inert template, so embedded images and frames are not loaded as tracking resources. RSS requests may use the public `proxy.cors.dev` CORS proxy when a publisher's feed does not permit direct browser access. Audio is streamed from the podcast publisher or its hosting provider. These external services can receive request metadata such as IP address and requested URLs. The project does not operate its own server or user database.
 
 No API keys are embedded in the HTML file. The PinePods search endpoint and public CORS proxy are third-party dependencies; their availability, policies, and behavior may change.
 
@@ -71,7 +71,7 @@ The app uses modern JavaScript and browser APIs. It is not designed around an ES
 
 ## Limitations
 
-This is an experimental project and has not been exhaustively tested across every browser, feed format, or podcast host. Some feeds block browser requests, some media hosts restrict playback, and external catalogue or proxy services can become unavailable. Browser local-storage limits vary. The app cannot guarantee that every RSS or Atom extension will be interpreted correctly.
+This is an experimental project and has not been exhaustively tested across every browser, feed format, or podcast host. Some feeds block browser requests, some media hosts restrict playback, and external catalogue or proxy services can become unavailable. Browser local-storage limits vary. The app bounds subscriptions, queued episodes, and saved episodes to 1,000 each, listening history to 30 entries, in-progress entries to 200, and played-episode IDs to 5,000. Backup merges retain existing entries first when a collection reaches its limit. Show descriptions are capped at 500 characters, and saved episode copies retain a 300-character description excerpt; the live episode list keeps its fuller descriptions. Feed metadata and imported text are length-bounded before they are rendered or persisted. The app cannot guarantee that every RSS or Atom extension will be interpreted correctly. Browsers without streaming Fetch response support reject feeds larger than 10 MB because they cannot safely trim the response while downloading it.
 
 Feed diagnostics can help identify failed requests. A failed refresh retains the last successfully loaded feed data when available.
 
@@ -96,7 +96,7 @@ npx playwright install chromium firefox webkit
 npm test
 ```
 
-The Playwright suite runs in Chromium, Firefox, and WebKit. It covers malformed local storage, RSS/RDF/Atom parsing, audio and video enclosure detection, native media-element switching, queue and episode state, stale media events and playback promises, listening-history normalization, feed response limits, OPML import and duplicate handling, and JSON backup validation, merging, replacement, and file-size limits. GitHub Actions runs the same suite on pushes and pull requests. These tests exercise application logic with controlled feed and media fixtures; they do not verify real-world audio decoding or guarantee compatibility with every podcast host, browser version, or codec.
+The Playwright suite runs in Chromium, Firefox, and WebKit. It covers malformed local storage, RSS/RDF/Atom parsing, redirects and relative media URLs, audio and video enclosure detection, native media-element switching, stale media events and playback promises, listening-history normalization, CDATA-safe feed truncation, response-size limits, OPML import and duplicate handling, and JSON backup validation, merging, replacement, and file-size limits. GitHub Actions runs the same suite on pushes and pull requests. These tests exercise application logic with controlled feed and media fixtures; they do not verify real-world audio decoding or guarantee compatibility with every podcast host, browser version, or codec.
 
 ## License
 

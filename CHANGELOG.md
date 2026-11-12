@@ -2,11 +2,34 @@
 
 ## 2.2.0
 
+- Reject credential-bearing external URLs and prevent publisher-supplied description HTML from loading remote images or frames during text extraction.
+
+- Bound feed text, URLs, titles, descriptions, diagnostic messages, and identifiers before parsing or persistence to limit oversized publisher metadata.
+- Keep saved episode description excerpts short so large queues and favorites remain within common browser storage quotas while live feed panels retain fuller descriptions.
+- Reject malformed minute and second fields when formatting podcast durations.
+
+- Normalize duplicate played-episode IDs before applying the 5,000-entry cap, and enforce collection limits during additions and backup merges.
+- Keep backup subscription indexes synchronized when feed addresses change, preventing a later subscription from overwriting the wrong show. Match imports by stable subscription ID before feed URL so existing subscriptions can safely exchange feed addresses.
+- Resolve relative RSS/Atom artwork and media links against the feed address, including the final URL after an HTTP redirect.
+- Serialize Apple catalogue request starts so concurrent searches and lookups honor the configured request interval.
+- Ignore stale media metadata events before applying saved playback positions.
+- Trim oversized feeds with an XML-aware scanner that ignores closing-tag text inside CDATA, comments, processing instructions, and quoted attributes.
+- Reject oversized non-streaming feed responses from their declared Content-Length before reading the full body when that header is available.
+- Avoid rebuilding unrelated episode panels and batch large episode/library DOM insertions with document fragments.
+- Reject non-finite numeric metadata before persisting it.
+- Preserve case-sensitive feed paths when deduplicating catalogue results.
+
 - Remove the Latest Episodes section and its related filtering and sorting functionality.
 - Fall back to an episode's audio enclosure when native video playback fails and the feed provides an audio alternative.
 - Retry transient failures from the individual feed refresh action.
 - Reset both native media elements when restoring a backup that clears the current episode.
 - Synchronize the README and package metadata with the application version.
+- Stop previously active media when restoring a backup with a different current episode, and release stale media sources when switching between audio and video.
+- Keep the shared player attached to the correct episode when video falls back to its audio enclosure.
+- Enforce the feed-size limit using UTF-8 byte counts in browsers without streaming response support.
+- Bound feed-cache timestamps and use set-based deduplication when loading subscriptions and importing OPML.
+- Preserve the newest played-episode IDs within the 5,000-entry limit, including during backup restores and merges.
+- Keep Apple search results that need a catalogue lookup, recognize Apple's `trackId`, and prioritize preferred RSS/Atom fields even when they appear later in the XML.
 
 ## 2.1.2
 
