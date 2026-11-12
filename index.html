@@ -1684,6 +1684,10 @@
         return;
       }
       let index = state.queue.findIndex(item => item.id === normalized.id);
+      if (index < 0 && state.queue.length >= MAX_QUEUE_EPISODES) {
+        setStatus(elements.playerStatus, "Your queue has reached the " + MAX_QUEUE_EPISODES + "-episode limit.", true);
+        return;
+      }
       if (index < 0) {
         state.queue.push(normalized);
         index = state.queue.length - 1;
@@ -1695,10 +1699,6 @@
       }
       currentQueueIndex = index;
       const targetMedia = normalized.mediaType === "video" ? elements.video : elements.audioElement;
-      if (index < 0 && state.queue.length >= MAX_QUEUE_EPISODES) {
-        setStatus(elements.playerStatus, "Your queue has reached the " + MAX_QUEUE_EPISODES + "-episode limit.", true);
-        return;
-      }
       if (elements.audio !== targetMedia) {
         const previousMedia = elements.audio;
         if (!previousMedia.paused) previousMedia.pause();
