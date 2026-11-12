@@ -210,6 +210,16 @@ test("bounds saved descriptions and metadata before writing browser storage", as
   expect(saved.currentEpisode.description).toHaveLength(300);
 });
 
+test("formats valid podcast durations and leaves malformed time fields unchanged", async ({ page }) => {
+  const results = await page.evaluate(() => [
+    window.formatDuration("90:00"),
+    window.formatDuration("1:02:03"),
+    window.formatDuration("1:90:00"),
+    window.formatDuration("1:60")
+  ]);
+  expect(results).toEqual(["1:30:00", "1:02:03", "1:90:00", "1:60"]);
+});
+
 test("normalizes malformed local storage without crashing or retaining invalid records", async ({ page }) => {
   // Seed storage before the app starts. Seeding the already-loaded page and then
   // calling reload() does not work: the old page's pagehide handler saves its own
