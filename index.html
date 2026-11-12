@@ -1271,16 +1271,19 @@
     }
 
     function syncSearchSubscribeButtons() {
+      const subscribedIds = new Set(state.library.map(saved => saved.id));
+      const subscribedFeeds = new Set(state.library.map(saved => saved.feedUrl).filter(Boolean));
       elements.searchResults.querySelectorAll("button[data-subscribe-show-id]").forEach(button => {
-        const subscribed = state.library.some(saved => saved.id === button.dataset.subscribeShowId ||
-          (button.dataset.subscribeFeed && saved.feedUrl === button.dataset.subscribeFeed));
+        const subscribed = subscribedIds.has(button.dataset.subscribeShowId) ||
+          (button.dataset.subscribeFeed && subscribedFeeds.has(button.dataset.subscribeFeed));
         button.textContent = subscribed ? "Subscribed" : "Subscribe";
-        button.disabled = subscribed;
+        button.disabled = Boolean(subscribed);
       });
     }
 
     function createShowCard(show, inLibrary, existingPanel) {
       const normalized = normalizeShow(show);
+      const alreadySubscribed = !inLibrary && isSubscribed(normalized);
       const item = makeElement("li");
       const card = makeElement("article");
       const image = makeImage(normalized.artwork, normalized.title + " artwork", inLibrary ? 48 : 80);
@@ -1344,11 +1347,11 @@
         remove.addEventListener("click", () => unsubscribeShow(normalized.id));
         actions.push(remove);
       } else {
-        const subscribe = makeElement("button", isSubscribed(normalized) ? "Subscribed" : "Subscribe");
+        const subscribe = makeElement("button", alreadySubscribed ? "Subscribed" : "Subscribe");
         subscribe.type = "button";
         subscribe.dataset.subscribeShowId = normalized.id;
         subscribe.dataset.subscribeFeed = normalized.feedUrl;
-        subscribe.disabled = isSubscribed(normalized);
+        subscribe.disabled = alreadySubscribed;
         subscribe.addEventListener("click", () => subscribeShow(normalized));
         actions.push(subscribe);
       }
