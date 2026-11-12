@@ -210,6 +210,23 @@ test("bounds saved descriptions and metadata before writing browser storage", as
   expect(saved.currentEpisode.description).toHaveLength(300);
 });
 
+test("accepts public HTTP URLs, resolves relatives, and rejects unsafe URL forms", async ({ page }) => {
+  const urls = await page.evaluate(() => [
+    window.safeHttpUrl("https://feeds.example.test/show.xml"),
+    window.safeHttpUrl("../media/episode.mp3", "https://feeds.example.test/podcast/feed.xml"),
+    window.safeHttpUrl("javascript:alert(1)"),
+    window.safeHttpUrl("https://user:secret@feeds.example.test/show.xml"),
+    window.safeHttpUrl("https://feeds.example.test/" + "x".repeat(4100))
+  ]);
+  expect(urls).toEqual([
+    "https://feeds.example.test/show.xml",
+    "https://feeds.example.test/media/episode.mp3",
+    "",
+    "",
+    ""
+  ]);
+});
+
 test("does not merge catalogue results whose feed paths differ by case", async ({ page }) => {
   const merged = await page.evaluate(() => window.mergeSearchResults(
     [{
