@@ -64,6 +64,20 @@ const HISTORY_FIXTURE = {
     { ...UNIQUE_HISTORY_EPISODE, playedAt: "2026-11-10T03:00:00Z" }
   ]
 };
+const PLAYED_IDS_FIXTURE = {
+  playedEpisodeIds: [...Array.from({ length: 5000 }, (_, index) => "played-" + index), "played-0"]
+};
+const BACKUP_INDEX_FIXTURE = {
+  library: [{
+    appleId: 111,
+    title: "Original Feed A",
+    feedUrl: "https://feeds.example.test/a.xml"
+  }],
+  queue: [],
+  favorites: [],
+  history: [],
+  inProgress: []
+};
 
 async function mockMedia(page) {
   await page.addInitScript(() => {
@@ -123,6 +137,12 @@ test.beforeEach(async ({ page }, testInfo) => {
   await mockMedia(page);
   if (testInfo.title === "keeps listening timestamps attached to their episodes when duplicate history IDs are removed") {
     await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(HISTORY_FIXTURE)]);
+  }
+  if (testInfo.title === "retains the newest played episode IDs and keeps the collection bounded") {
+    await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(PLAYED_IDS_FIXTURE)]);
+  }
+  if (testInfo.title === "updates a subscription feed address without retaining a stale merge index") {
+    await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(BACKUP_INDEX_FIXTURE)]);
   }
   await page.goto("/");
 });
@@ -641,6 +661,33 @@ test("deduplicates and normalizes collections when replacing a backup", async ({
   expect(saved.expandedSections).toEqual({ "history-section": true });
 });
 
+test("updates a subscription feed address without retaining a stale merge index", async ({ page }) => {
+  const feedA = "https://feeds.example.test/a.xml";
+  const feedB = "https://feeds.example.test/b.xml";
+  const backup = {
+    schemaVersion: 2,
+    library: [
+      { appleId: 111, title: "Updated Podcast", feedUrl: feedB },
+      { appleId: 222, title: "New Podcast", feedUrl: feedA }
+    ],
+    queue: [],
+    favorites: [],
+    history: [],
+    inProgress: []
+  };
+  await openSection(page, "data-section");
+  await page.locator("#import-backup").setInputFiles({
+    name: "feed-index-merge.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup))
+  });
+  await expect(page.locator("#backup-status")).toContainText("Backup merged");
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library).toHaveLength(2);
+  expect(saved.library.find(show => show.appleId === "111").feedUrl).toBe(feedB);
+  expect(saved.library.find(show => show.appleId === "222").feedUrl).toBe(feedA);
+});
+
 test("replaces existing browser data when the backup replacement option is selected", async ({ page }) => {
   await addFeed(page, RSS_URL, RSS);
   await openSection(page, "data-section");
@@ -766,16 +813,12 @@ test("looks up the feed URL for Apple search results that omit it", async ({ pag
 });
 
 test("retains the newest played episode IDs and keeps the collection bounded", async ({ page }) => {
-  const playedIds = Array.from({ length: 5001 }, (_, index) => "played-" + index);
-  await page.addInitScript(([key, value]) => {
-    localStorage.setItem(key, value);
-  }, [STORAGE_KEY, JSON.stringify({ playedEpisodeIds: playedIds })]);
-  await page.reload();
   await openSection(page, "history-section");
   let saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.playedEpisodeIds).toHaveLength(5000);
-  expect(saved.playedEpisodeIds).toContain("played-5000");
-  expect(saved.playedEpisodeIds).not.toContain("played-0");
+  expect(saved.playedEpisodeIds).toContain("played-0");
+  expect(saved.playedEpisodeIds).toContain("played-4999");
+  expect(new Set(saved.playedEpisodeIds).size).toBe(5000);
 
   await openSection(page, "data-section");
   const replacement = {
