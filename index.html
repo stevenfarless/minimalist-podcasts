@@ -2170,6 +2170,8 @@
         media.removeAttribute("src");
         media.load();
       }
+      elements.audioElement.hidden = false;
+      elements.video.hidden = true;
       activeMedia = elements.audioElement;
       if (state.currentEpisode && safeHttpUrl(state.currentEpisode.audioUrl)) {
         state.currentEpisode = normalizeEpisode(state.currentEpisode);
@@ -2191,14 +2193,6 @@
         renderNowPlaying();
       } else {
         currentQueueIndex = -1;
-        for (const media of [elements.audioElement, elements.video]) {
-          media.pause();
-          media.removeAttribute("src");
-          media.load();
-        }
-        elements.audioElement.hidden = false;
-        elements.video.hidden = true;
-        activeMedia = elements.audioElement;
         renderNowPlaying();
       }
     }
