@@ -2091,18 +2091,6 @@
         }
         libraryPanels.clear();
         Object.assign(state, incoming);
-        if (!state.currentEpisode) {
-          playbackGeneration += 1;
-          for (const media of [elements.audioElement, elements.video]) {
-            media.pause();
-            media.removeAttribute("src");
-            media.load();
-          }
-          elements.audioElement.hidden = false;
-          elements.video.hidden = true;
-          activeMedia = elements.audioElement;
-          renderNowPlaying();
-        }
       } else {
         const mergeById = (current, extra) => {
           const map = new Map((current || []).map(item => [item.id, item]));
@@ -2174,6 +2162,17 @@
         targetMedia.addEventListener("loadedmetadata", restorePosition);
         targetMedia.preload = "none";
         targetMedia.src = state.currentEpisode.audioUrl;
+        renderNowPlaying();
+      } else {
+        currentQueueIndex = -1;
+        for (const media of [elements.audioElement, elements.video]) {
+          media.pause();
+          media.removeAttribute("src");
+          media.load();
+        }
+        elements.audioElement.hidden = false;
+        elements.video.hidden = true;
+        activeMedia = elements.audioElement;
         renderNowPlaying();
       }
     }
