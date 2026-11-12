@@ -2322,23 +2322,35 @@
         const mergedLibrary = [...(state.library || [])];
         const subscriptionIndexesByFeed = new Map();
         const subscriptionIndexesById = new Map();
+        const incomingById = new Map(incoming.library.map(show => [show.id, show]));
         mergedLibrary.forEach((show, index) => {
           if (show.feedUrl) subscriptionIndexesByFeed.set(show.feedUrl, index);
           subscriptionIndexesById.set(show.id, index);
         });
         for (const show of incoming.library) {
+          const idIndex = subscriptionIndexesById.get(show.id);
           const feedIndex = show.feedUrl ? subscriptionIndexesByFeed.get(show.feedUrl) : undefined;
-          const index = feedIndex === undefined ? subscriptionIndexesById.get(show.id) : feedIndex;
+          const index = idIndex === undefined ? feedIndex : idIndex;
           if (index !== undefined) {
             const existing = mergedLibrary[index];
             const updated = {...existing, ...show, id: existing.id};
-            if (existing.feedUrl && existing.feedUrl !== updated.feedUrl) {
+            const feedOwnerIndex = show.feedUrl ? subscriptionIndexesByFeed.get(show.feedUrl) : undefined;
+            if (feedOwnerIndex !== undefined && feedOwnerIndex !== index) {
+              const feedOwner = mergedLibrary[feedOwnerIndex];
+              const ownerUpdate = feedOwner && incomingById.get(feedOwner.id);
+              const ownerWillMove = ownerUpdate && ownerUpdate.feedUrl !== show.feedUrl;
+              if (!ownerWillMove) updated.feedUrl = existing.feedUrl;
+            }
+            if (existing.feedUrl && existing.feedUrl !== updated.feedUrl && subscriptionIndexesByFeed.get(existing.feedUrl) === index) {
               subscriptionIndexesByFeed.delete(existing.feedUrl);
             }
             mergedLibrary[index] = updated;
             subscriptionIndexesById.set(updated.id, index);
             subscriptionIndexesById.set(show.id, index);
-            if (updated.feedUrl) subscriptionIndexesByFeed.set(updated.feedUrl, index);
+            if (updated.feedUrl) {
+              const mappedIndex = subscriptionIndexesByFeed.get(updated.feedUrl);
+              if (mappedIndex === undefined || mappedIndex === index) subscriptionIndexesByFeed.set(updated.feedUrl, index);
+            }
           } else {
             if (mergedLibrary.length >= MAX_SUBSCRIPTIONS) {
               skippedSubscriptionsByLimit += 1;
