@@ -16,7 +16,7 @@ The project began as a small, 100% AI-assisted vibe-coding experiment. It grew i
 - Resume episodes from saved playback positions.
 - Import and export subscriptions using OPML.
 - Export and restore complete JSON backups, either merging with current data or replacing it.
-- Refresh feeds with up to three concurrent requests, retry temporary failures, retain previously loaded data when a refresh fails, and inspect feed diagnostics.
+- Refresh individual feeds, retry temporary failures, retain previously loaded data when a refresh fails, and inspect feed diagnostics.
 - Preserve loaded episodes, episode filters, and expanded episode state while filtering the subscription library.
 - Bound the in-memory feed cache and avoid redundant local-storage writes; playback progress is saved periodically and when the page is closed.
 - Remember which main sections were expanded.
