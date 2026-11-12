@@ -2093,9 +2093,14 @@
         Object.assign(state, incoming);
         if (!state.currentEpisode) {
           playbackGeneration += 1;
-          elements.audio.pause();
-          elements.audio.removeAttribute("src");
-          elements.audio.load();
+          for (const media of [elements.audioElement, elements.video]) {
+            media.pause();
+            media.removeAttribute("src");
+            media.load();
+          }
+          elements.audioElement.hidden = false;
+          elements.video.hidden = true;
+          activeMedia = elements.audioElement;
           renderNowPlaying();
         }
       } else {
