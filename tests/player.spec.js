@@ -141,7 +141,12 @@ test("normalizes malformed local storage without crashing or retaining invalid r
       queue: [null, {}, { id: "no-audio", title: "No Audio" }, { id: "valid", title: "Playable", audioUrl: "https://media.example.test/valid.mp3" }],
       favorites: [null, { id: "favorite", title: "Saved" }],
       history: [null, { id: "played", title: "Played", playedAt: "2026-11-10T00:00:00Z" }],
-      inProgress: [null, { episode: { id: "bad" }, currentTime: -5, duration: 100 }, { episode: { id: "good", audioUrl: "https://media.example.test/good.mp3" }, currentTime: 120, duration: 100 }],
+      inProgress: [
+        null,
+        { episode: { id: "bad" }, currentTime: -5, duration: 100 },
+        { episode: { id: "good", audioUrl: "https://media.example.test/good.mp3" }, currentTime: 120, duration: 100, updatedAt: "2026-11-10T00:00:00Z" },
+        { episode: { id: "good", audioUrl: "https://media.example.test/good.mp3" }, currentTime: 50, duration: 100, updatedAt: "2026-11-10T01:00:00Z" }
+      ],
       diagnostics: [null, { message: "Stored diagnostic" }],
       expandedSections: { "library-section": true, invalid: "yes" },
       currentEpisode: { title: "Broken current episode" },
@@ -155,7 +160,7 @@ test("normalizes malformed local storage without crashing or retaining invalid r
   expect(saved.queue).toHaveLength(1);
   expect(saved.queue[0].id).toBe("valid");
   expect(saved.inProgress).toHaveLength(1);
-  expect(saved.inProgress[0].currentTime).toBe(100);
+  expect(saved.inProgress[0].currentTime).toBe(50);
   expect(saved.currentEpisode).toBeNull();
   expect(saved.currentTime).toBe(0);
   expect(saved.playbackRate).toBe(1);
