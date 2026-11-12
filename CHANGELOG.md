@@ -2,16 +2,19 @@
 
 ## 2.2.0
 
+- Reject credential-bearing external URLs and prevent publisher-supplied description HTML from loading remote images or frames during text extraction.
+
 - Bound feed text, URLs, titles, descriptions, diagnostic messages, and identifiers before parsing or persistence to limit oversized publisher metadata.
 - Keep saved episode description excerpts short so large queues and favorites remain within common browser storage quotas while live feed panels retain fuller descriptions.
 - Reject malformed minute and second fields when formatting podcast durations.
 
 - Normalize duplicate played-episode IDs before applying the 5,000-entry cap, and enforce collection limits during additions and backup merges.
-- Keep backup subscription indexes synchronized when feed addresses change, preventing a later subscription from overwriting the wrong show.
+- Keep backup subscription indexes synchronized when feed addresses change, preventing a later subscription from overwriting the wrong show. Match imports by stable subscription ID before feed URL so existing subscriptions can safely exchange feed addresses.
 - Resolve relative RSS/Atom artwork and media links against the feed address, including the final URL after an HTTP redirect.
 - Serialize Apple catalogue request starts so concurrent searches and lookups honor the configured request interval.
 - Ignore stale media metadata events before applying saved playback positions.
 - Trim oversized feeds with an XML-aware scanner that ignores closing-tag text inside CDATA, comments, processing instructions, and quoted attributes.
+- Reject oversized non-streaming feed responses from their declared Content-Length before reading the full body when that header is available.
 - Avoid rebuilding unrelated episode panels and batch large episode/library DOM insertions with document fragments.
 - Reject non-finite numeric metadata before persisting it.
 - Preserve case-sensitive feed paths when deduplicating catalogue results.
