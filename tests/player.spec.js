@@ -203,6 +203,13 @@ test("parses video podcast enclosures and uses the browser's native video elemen
   await expect(page.locator("#audio-player")).toBeHidden();
   expect(await video.evaluate(element => element.src)).toBe("https://media.example.test/video-one.mp4");
 
+  // If the browser or publisher cannot play the video enclosure, use the
+  // ordinary audio enclosure from the same episode when one is available.
+  await video.evaluate(element => element.dispatchEvent(new Event("error")));
+  await expect(page.locator("#audio-player")).toBeVisible();
+  await expect(video).toBeHidden();
+  expect(await page.locator("#audio-player").evaluate(element => element.src)).toBe("https://media.example.test/video-audio.mp3");
+
   const audioEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Audio Episode" });
   await audioEpisode.getByText("Audio Episode", { exact: true }).click();
   await expect(audioEpisode.getByRole("link", { name: "Open Video File" })).toHaveCount(0);
@@ -210,6 +217,36 @@ test("parses video podcast enclosures and uses the browser's native video elemen
   await expect(page.locator("#audio-player")).toBeVisible();
   await expect(video).toBeHidden();
   expect(await page.locator("#audio-player").evaluate(element => element.src)).toBe("https://media.example.test/audio-two.mp3");
+});
+
+test("resets the active media element when replacing a backup clears a playing video episode", async ({ page }) => {
+  await addFeed(page, VIDEO_RSS_URL, VIDEO_RSS);
+  const videoEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Video Episode" });
+  await videoEpisode.getByText("Video Episode", { exact: true }).click();
+  await videoEpisode.getByRole("button", { name: "Play Episode" }).click();
+  await expect(page.locator("#video-player")).toBeVisible();
+
+  await openSection(page, "data-section");
+  await page.locator("#replace-backup").check();
+  const emptyBackup = {
+    schemaVersion: 2,
+    library: [],
+    queue: [],
+    favorites: [],
+    history: [],
+    inProgress: []
+  };
+  await page.locator("#import-backup").setInputFiles({
+    name: "empty.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(emptyBackup))
+  });
+
+  await expect(page.locator("#backup-status")).toContainText("replacing current data");
+  await expect(page.locator("#audio-player")).toHaveJSProperty("hidden", false);
+  await expect(page.locator("#video-player")).toHaveJSProperty("hidden", true);
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.currentEpisode).toBeNull();
 });
 
 test("parses Atom enclosure links and resolves relative audio URLs", async ({ page }) => {
@@ -560,6 +597,37 @@ test("retries a transient feed failure and succeeds when the publisher recovers"
   expect(proxyAttempts).toBe(1);
 });
 
+
+test("retries a transient failure when refreshing an already subscribed feed", async ({ page }) => {
+  await addFeed(page, RSS_URL, RSS);
+  await expect(page.locator("#library-list")).toContainText("Episode Two");
+
+  // Replace the add-feed mock so the refresh requests are counted independently.
+  await page.unroute(RSS_URL);
+  let directAttempts = 0;
+  let proxyAttempts = 0;
+  await page.route(RSS_URL, route => {
+    directAttempts += 1;
+    if (directAttempts === 1) return route.fulfill({ status: 503, body: "Temporary publisher failure" });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/xml",
+      headers: { "access-control-allow-origin": "*" },
+      body: RSS
+    });
+  });
+  await page.route("https://proxy.cors.dev/**", route => {
+    proxyAttempts += 1;
+    return route.fulfill({ status: 503, body: "Proxy unavailable" });
+  });
+
+  const refresh = page.getByRole("button", { name: "Refresh Episodes" });
+  await refresh.click();
+  await expect(page.locator("#library-list")).toContainText("Episode Two");
+  await expect(page.locator("#library-list")).toContainText("Feed loaded directly");
+  expect(directAttempts).toBe(2);
+  expect(proxyAttempts).toBe(1);
+});
 
 test("reorders and removes episodes in the playback queue", async ({ page }) => {
   await addFeed(page, RSS_URL, RSS);

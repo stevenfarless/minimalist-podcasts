@@ -10,15 +10,13 @@ The project began as a small, 100% AI-assisted vibe-coding experiment. It grew i
 - Merge catalogue results and remove duplicate shows.
 - Add podcasts manually using a public RSS or Atom feed address.
 - Browse and stream audio or video episodes from subscribed RSS and Atom feeds.
-- Play video episodes with the browser's native HTML5 video controls; no third-party player or runtime library is used.
+- Play video episodes with the browser's native HTML5 video controls; automatically fall back to an available audio enclosure if video playback fails.
 - Manage subscriptions, saved episodes, listening history, and a playback queue.
-- See the latest unplayed episodes across subscriptions.
 - Track episodes as unplayed, in progress, or played. Episodes are automatically marked played after 90% completion, and can also be marked manually.
 - Resume episodes from saved playback positions.
-- Filter subscriptions and latest episodes; sort latest episodes by date, podcast, or title.
 - Import and export subscriptions using OPML.
 - Export and restore complete JSON backups, either merging with current data or replacing it.
-- Refresh feeds with up to three concurrent requests, retry temporary failures, retain previously loaded data when a refresh fails, and inspect feed diagnostics.
+- Refresh individual feeds, retry temporary failures, retain previously loaded data when a refresh fails, and inspect feed diagnostics.
 - Preserve loaded episodes, episode filters, and expanded episode state while filtering the subscription library.
 - Bound the in-memory feed cache and avoid redundant local-storage writes; playback progress is saved periodically and when the page is closed.
 - Remember which main sections were expanded.
@@ -79,7 +77,7 @@ Feed diagnostics can help identify failed requests. A failed refresh retains the
 
 ## Development
 
-- Application version: `2.1.0`
+- Application version: `2.2.0`
 - Storage schema: `2`
 - Main application: `index.html`
 - Language: HTML and vanilla JavaScript

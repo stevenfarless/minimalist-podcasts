@@ -556,6 +556,7 @@
         feedUrl: safeHttpUrl(raw.feedUrl || ""),
         audioUrl: safeHttpUrl(raw.audioUrl || ""),
         mediaType: raw.mediaType === "video" ? "video" : "audio",
+        fallbackAudioUrl: safeHttpUrl(raw.fallbackAudioUrl || ""),
         link: safeHttpUrl(raw.link || ""),
         date: String(raw.date || ""),
         duration: String(raw.duration || ""),
@@ -854,8 +855,14 @@
         return "";
       };
       const typed = candidates.map(item => ({...item, mediaType: classify(item)})).filter(item => item.mediaType);
-      const selected = typed.find(item => item.mediaType === "video") || typed.find(item => item.mediaType === "audio");
-      return selected ? {url: selected.url, mediaType: selected.mediaType} : {url: "", mediaType: "audio"};
+      const selectedVideo = typed.find(item => item.mediaType === "video");
+      const selected = selectedVideo || typed.find(item => item.mediaType === "audio");
+      const fallbackAudio = selectedVideo ? typed.find(item => item.mediaType === "audio") : null;
+      return selected ? {
+        url: selected.url,
+        mediaType: selected.mediaType,
+        fallbackAudioUrl: fallbackAudio ? fallbackAudio.url : ""
+      } : {url: "", mediaType: "audio", fallbackAudioUrl: ""};
     }
 
     function episodeDescriptionMarkup(entry) {
@@ -914,6 +921,7 @@
           feedUrl: actualShow.feedUrl,
           audioUrl,
           mediaType: media.mediaType,
+          fallbackAudioUrl: media.fallbackAudioUrl,
           link,
           date,
           duration,
@@ -1431,7 +1439,7 @@
         } else if (settings.prefetched) {
           result = settings.prefetched;
         } else {
-          const fetched = await fetchFeedDocument(feedUrl);
+          const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
           result = parseFeed(fetched.documentXml, panel.show, fetched.source, fetched.truncated);
         }
         if (token !== panel.loadToken) return;
@@ -2083,13 +2091,6 @@
         }
         libraryPanels.clear();
         Object.assign(state, incoming);
-        if (!state.currentEpisode) {
-          playbackGeneration += 1;
-          elements.audio.pause();
-          elements.audio.removeAttribute("src");
-          elements.audio.load();
-          renderNowPlaying();
-        }
       } else {
         const mergeById = (current, extra) => {
           const map = new Map((current || []).map(item => [item.id, item]));
@@ -2161,6 +2162,17 @@
         targetMedia.addEventListener("loadedmetadata", restorePosition);
         targetMedia.preload = "none";
         targetMedia.src = state.currentEpisode.audioUrl;
+        renderNowPlaying();
+      } else {
+        currentQueueIndex = -1;
+        for (const media of [elements.audioElement, elements.video]) {
+          media.pause();
+          media.removeAttribute("src");
+          media.load();
+        }
+        elements.audioElement.hidden = false;
+        elements.video.hidden = true;
+        activeMedia = elements.audioElement;
         renderNowPlaying();
       }
     }
@@ -2246,6 +2258,17 @@
       });
       media.addEventListener("error", () => {
         if (elements.audio === media && isCurrentPlaybackSource()) {
+          if (state.currentEpisode.mediaType === "video" && state.currentEpisode.fallbackAudioUrl) {
+            const fallbackEpisode = {
+              ...state.currentEpisode,
+              audioUrl: state.currentEpisode.fallbackAudioUrl,
+              mediaType: "audio",
+              fallbackAudioUrl: ""
+            };
+            setStatus(elements.playerStatus, "Video playback failed. Switching to the audio version.");
+            playEpisode(fallbackEpisode);
+            return;
+          }
           const kind = state.currentEpisode.mediaType === "video" ? "video" : "audio";
           setStatus(elements.playerStatus, "The " + kind + " file could not be played. The publisher may have removed it, the server may be unavailable, or this browser may not support its codec.", true);
         }
