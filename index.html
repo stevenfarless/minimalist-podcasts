@@ -309,10 +309,12 @@
         ).slice(0, limit);
         const library = [];
         const feedUrls = new Set();
+        const libraryIds = new Set();
         for (const item of (Array.isArray(saved.library) ? saved.library : []).filter(isRecord)) {
           const show = normalizeShow(item);
-          if ((!show.feedUrl && !show.appleId) || (show.feedUrl && feedUrls.has(show.feedUrl)) || library.some(existing => existing.id === show.id)) continue;
+          if ((!show.feedUrl && !show.appleId) || (show.feedUrl && feedUrls.has(show.feedUrl)) || libraryIds.has(show.id)) continue;
           library.push(show);
+          libraryIds.add(show.id);
           if (show.feedUrl) feedUrls.add(show.feedUrl);
           if (library.length >= 1000) break;
         }
@@ -409,7 +411,11 @@
     function cacheFeed(feedUrl, result) {
       if (feedCache.has(feedUrl)) feedCache.delete(feedUrl);
       feedCache.set(feedUrl, result);
-      if (feedCache.size > 20) feedCache.delete(feedCache.keys().next().value);
+      if (feedCache.size > 20) {
+        const oldestFeedUrl = feedCache.keys().next().value;
+        feedCache.delete(oldestFeedUrl);
+        latestFeedCacheTimestamps.delete(oldestFeedUrl);
+      }
     }
 
     function isCurrentPlaybackSource() {
@@ -761,9 +767,8 @@
           text = new TextDecoder("utf-8").decode(bytes);
         } else {
           text = await response.text();
-          if (text.length > MAX_FEED_BYTES) {
-            text = text.slice(0, MAX_FEED_BYTES);
-            truncated = true;
+          if (new Blob([text]).size > MAX_FEED_BYTES) {
+            throw new Error("Feed response exceeds the " + (MAX_FEED_BYTES / 1048576) + " MB size limit in this browser.");
           }
         }
         return truncated ? {text: truncateFeedText(text), truncated: true} : {text, truncated: false};
@@ -1599,7 +1604,7 @@
       if (current) {
         const rows = document.querySelectorAll("li[data-episode-id]");
         for (const row of rows) {
-          if (row.dataset.episodeId === current.id && row.dataset.audioUrl === current.audioUrl && rowIsInOpenSection(row)) {
+          if (row.dataset.episodeId === current.id && rowIsInOpenSection(row)) {
             destination = row;
             break;
           }
@@ -1663,6 +1668,8 @@
       if (elements.audio !== targetMedia) {
         const previousMedia = elements.audio;
         if (!previousMedia.paused) previousMedia.pause();
+        previousMedia.removeAttribute("src");
+        previousMedia.load();
         previousMedia.hidden = true;
         targetMedia.hidden = false;
         activeMedia = targetMedia;
@@ -2012,10 +2019,17 @@
       const outlines = [...xml.getElementsByTagName("outline")];
       const imported = outlines.map(node => ({title: node.getAttribute("title") || node.getAttribute("text") || "Imported Podcast", feedUrl: node.getAttribute("xmlUrl") || node.getAttribute("url") || "", appleUrl: node.getAttribute("htmlUrl") || "", source: "OPML import"})).filter(show => safeHttpUrl(show.feedUrl));
       if (!imported.length) throw new Error("No valid podcast RSS addresses were found in that OPML file.");
+      const existingFeedUrls = new Set(state.library.map(show => show.feedUrl).filter(Boolean));
+      const existingShowIds = new Set(state.library.map(show => show.id));
       let added = 0;
       for (const raw of imported) {
         const show = normalizeShow(raw);
-        if (!state.library.some(item => item.feedUrl === show.feedUrl || item.id === show.id)) {state.library.push(show); added += 1;}
+        if (!existingFeedUrls.has(show.feedUrl) && !existingShowIds.has(show.id)) {
+          state.library.push(show);
+          existingFeedUrls.add(show.feedUrl);
+          existingShowIds.add(show.id);
+          added += 1;
+        }
       }
       saveState(); renderLibrary(); elements.librarySection.open = true;
       setText(elements.opmlStatus, "Imported " + added + " new subscriptions. " + (imported.length - added) + " duplicates were skipped.");
@@ -2145,11 +2159,23 @@
       elements.playbackSpeed.value = String(rate);
       playbackGeneration += 1;
       const generation = playbackGeneration;
+      const previousMedia = activeMedia;
+      activeMedia = null;
+      if (previousMedia && !previousMedia.paused) {
+        suppressPauseFor = previousMedia;
+        previousMedia.pause();
+      }
+      for (const media of [elements.audioElement, elements.video]) {
+        if (media !== previousMedia && !media.paused) media.pause();
+        media.removeAttribute("src");
+        media.load();
+      }
+      activeMedia = elements.audioElement;
       if (state.currentEpisode && safeHttpUrl(state.currentEpisode.audioUrl)) {
         state.currentEpisode = normalizeEpisode(state.currentEpisode);
         const targetMedia = state.currentEpisode.mediaType === "video" ? elements.video : elements.audioElement;
-        elements.audio.hidden = true;
-        targetMedia.hidden = false;
+        elements.audioElement.hidden = targetMedia !== elements.audioElement;
+        elements.video.hidden = targetMedia !== elements.video;
         activeMedia = targetMedia;
         targetMedia.playbackRate = rate;
         currentQueueIndex = state.queue.findIndex(item => item.id === state.currentEpisode.id);
