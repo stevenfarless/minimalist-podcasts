@@ -703,6 +703,7 @@ test("retains the newest played episode IDs and keeps the collection bounded", a
   await page.reload();
   await addFeed(page, RSS_URL, RSS);
   const episode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Episode One" });
+  await episode.getByText("Episode One", { exact: true }).click();
   await episode.getByRole("button", { name: "Mark Played" }).click();
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.playedEpisodeIds).toHaveLength(5000);
