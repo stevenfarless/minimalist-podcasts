@@ -880,10 +880,12 @@
       const entries = (state.diagnostics || []).slice(0, 100);
       elements.diagnosticsList.replaceChildren();
       elements.diagnosticsSummary.textContent = entries.length ? entries.length + " recent feed or storage events recorded." : "No feed diagnostics have been recorded.";
+      const fragment = document.createDocumentFragment();
       entries.forEach(entry => {
         const item = makeElement("li", formatDate(entry.at) + " | " + (entry.kind || "event") + " | " + (entry.feedUrl || "app") + " | " + entry.message);
-        elements.diagnosticsList.append(item);
+        fragment.append(item);
       });
+      elements.diagnosticsList.append(fragment);
     }
 
     async function retryTransient(operation, attempts) {
@@ -1812,7 +1814,6 @@
       const generation = ++playbackGeneration;
       if (resumeAt !== undefined && Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0) {
         const seekOnMetadata = () => {
-          media.removeEventListener("loadedmetadata", seekOnMetadata);
           if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) {
             media.removeEventListener("loadedmetadata", seekOnMetadata);
             return;
@@ -1844,6 +1845,7 @@
     function renderQueue() {
       elements.queueList.replaceChildren();
       elements.queueEmpty.hidden = state.queue.length > 0;
+      const fragment = document.createDocumentFragment();
       state.queue.forEach((episode, index) => {
         const item = makeElement("li");
         const card = makeElement("article");
@@ -1870,8 +1872,9 @@
         actions.push(remove);
         card.append(makeActionGroup("Queue actions", actions));
         item.append(card, document.createElement("hr"));
-        elements.queueList.append(item);
+        fragment.append(item);
       });
+      elements.queueList.append(fragment);
     }
 
     function moveQueueItem(index, direction) {
@@ -1991,6 +1994,7 @@
       elements.progressList.replaceChildren();
       const entries = (state.inProgress || []).filter(item => item.episode && !episodeHasBeenPlayed(item.episode));
       elements.progressEmpty.hidden = entries.length > 0;
+      const fragment = document.createDocumentFragment();
       entries.forEach(entry => {
         const item = makeElement("li");
         const title = makeElement("strong", entry.episode.title);
@@ -2009,8 +2013,9 @@
         const resume = makeElement("button", "Resume"); resume.type = "button"; resume.addEventListener("click", () => playEpisode(entry.episode, entry.currentTime));
         const played = makeElement("button", "Mark Played"); played.type = "button"; played.addEventListener("click", () => markEpisodePlayed(entry.episode, true));
         item.append(makeActionGroup("In-progress actions", [resume, played]), document.createElement("hr"));
-        elements.progressList.append(item);
+        fragment.append(item);
       });
+      elements.progressList.append(fragment);
     }
 
     function toggleFavorite(episode) {
@@ -2041,6 +2046,7 @@
     function renderFavorites() {
       elements.favoritesList.replaceChildren();
       elements.favoritesEmpty.hidden = state.favorites.length > 0;
+      const fragment = document.createDocumentFragment();
       state.favorites.forEach(episode => {
         const item = makeElement("li");
         const card = makeElement("article");
@@ -2055,13 +2061,15 @@
         remove.addEventListener("click", () => toggleFavorite(episode));
         card.append(makeActionGroup("Saved episode actions", [play, remove]));
         item.append(card, document.createElement("hr"));
-        elements.favoritesList.append(item);
+        fragment.append(item);
       });
+      elements.favoritesList.append(fragment);
     }
 
     function renderHistory() {
       elements.historyList.replaceChildren();
       elements.historyEmpty.hidden = state.history.length > 0;
+      const fragment = document.createDocumentFragment();
       state.history.forEach(episode => {
         const item = makeElement("li");
         const card = makeElement("article");
@@ -2073,8 +2081,9 @@
         play.addEventListener("click", () => playEpisode(episode));
         card.append(makeActionGroup("Listening history actions", [play]));
         item.append(card, document.createElement("hr"));
-        elements.historyList.append(item);
+        fragment.append(item);
       });
+      elements.historyList.append(fragment);
     }
 
     async function handleSearch(event) {
@@ -2399,7 +2408,6 @@
         currentQueueIndex = state.queue.findIndex(item => item.id === state.currentEpisode.id);
         const episodeId = state.currentEpisode.id, resumeAt = Number(state.currentTime) || 0;
         const restorePosition = () => {
-          targetMedia.removeEventListener("loadedmetadata", restorePosition);
           if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== episodeId) {
             targetMedia.removeEventListener("loadedmetadata", restorePosition);
             return;
