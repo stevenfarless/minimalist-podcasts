@@ -71,7 +71,7 @@ The app uses modern JavaScript and browser APIs. It is not designed around an ES
 
 ## Limitations
 
-This is an experimental project and has not been exhaustively tested across every browser, feed format, or podcast host. Some feeds block browser requests, some media hosts restrict playback, and external catalogue or proxy services can become unavailable. Browser local-storage limits vary. The app cannot guarantee that every RSS or Atom extension will be interpreted correctly.
+This is an experimental project and has not been exhaustively tested across every browser, feed format, or podcast host. Some feeds block browser requests, some media hosts restrict playback, and external catalogue or proxy services can become unavailable. Browser local-storage limits vary. The app cannot guarantee that every RSS or Atom extension will be interpreted correctly. Browsers without streaming Fetch response support reject feeds larger than 10 MB because they cannot safely trim the response while downloading it.
 
 Feed diagnostics can help identify failed requests. A failed refresh retains the last successfully loaded feed data when available.
 
