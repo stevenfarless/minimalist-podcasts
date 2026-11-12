@@ -1514,12 +1514,9 @@
       return hours ? hours + ":" + String(minutes).padStart(2, "0") + ":" + String(remainder).padStart(2, "0") : minutes + ":" + String(remainder).padStart(2, "0");
     }
 
-    function isFavorite(episode) {
-      return state.favorites.some(item => item.id === episode.id);
-    }
-
     function renderEpisodes(panel) {
       const filter = panel.filter ? panel.filter.value.trim().toLowerCase() : "";
+      const favoriteIds = new Set(state.favorites.map(item => item.id));
       const visibleEpisodes = panel.episodes.filter(episode => {
         if (!filter) return true;
         return (episode.title + " " + episode.description + " " + episode.date).toLowerCase().includes(filter);
@@ -1556,7 +1553,7 @@
         queue.addEventListener("click", () => addToQueue(episode));
         actions.push(queue);
 
-        const save = makeElement("button", isFavorite(episode) ? "Remove Saved Episode" : "Save Episode");
+        const save = makeElement("button", favoriteIds.has(episode.id) ? "Remove Saved Episode" : "Save Episode");
         save.type = "button";
         save.addEventListener("click", () => toggleFavorite(episode));
         actions.push(save);
@@ -2156,16 +2153,28 @@
           for (const item of extra || []) if (item && item.id && !map.has(item.id)) map.set(item.id, item);
           return [...map.values()];
         };
-        const subscriptionsByFeed = new Map((state.library || []).filter(item => item.feedUrl).map(item => [item.feedUrl, item]));
         const mergedLibrary = [...(state.library || [])];
+        const subscriptionIndexesByFeed = new Map();
+        const subscriptionIndexesById = new Map();
+        mergedLibrary.forEach((show, index) => {
+          if (show.feedUrl) subscriptionIndexesByFeed.set(show.feedUrl, index);
+          subscriptionIndexesById.set(show.id, index);
+        });
         for (const show of incoming.library) {
-          const existing = subscriptionsByFeed.get(show.feedUrl) || mergedLibrary.find(item => item.id === show.id);
-          if (existing) {
-            const index = mergedLibrary.indexOf(existing);
-            mergedLibrary[index] = {...existing, ...show, id: existing.id};
+          const feedIndex = show.feedUrl ? subscriptionIndexesByFeed.get(show.feedUrl) : undefined;
+          const index = feedIndex === undefined ? subscriptionIndexesById.get(show.id) : feedIndex;
+          if (index !== undefined) {
+            const existing = mergedLibrary[index];
+            const updated = {...existing, ...show, id: existing.id};
+            mergedLibrary[index] = updated;
+            subscriptionIndexesById.set(updated.id, index);
+            subscriptionIndexesById.set(show.id, index);
+            if (updated.feedUrl) subscriptionIndexesByFeed.set(updated.feedUrl, index);
           } else {
+            const index = mergedLibrary.length;
             mergedLibrary.push(show);
-            if (show.feedUrl) subscriptionsByFeed.set(show.feedUrl, show);
+            subscriptionIndexesById.set(show.id, index);
+            if (show.feedUrl) subscriptionIndexesByFeed.set(show.feedUrl, index);
           }
         }
         state.library = mergedLibrary;
