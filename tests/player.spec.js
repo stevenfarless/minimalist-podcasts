@@ -550,6 +550,25 @@ test("keeps listening timestamps attached to their episodes when duplicate histo
   ]);
 });
 
+test("truncates oversized feeds without treating text inside CDATA as an episode boundary", async ({ page }) => {
+  const url = "https://feeds.example.test/cdata-oversized.xml";
+  const body = `<?xml version="1.0"?>
+  <rss version="2.0"><channel><title>CDATA Truncation Podcast</title>
+    <item><guid>complete-before-cdata</guid><title>Complete Early Episode</title>
+      <enclosure url="https://media.example.test/complete.mp3" type="audio/mpeg"/>
+    </item>
+    <item><guid>oversized-cdata</guid><title>Oversized Description</title>
+      <description><![CDATA[${"x".repeat(9 * 1024 * 1024)}</item>${"y".repeat(2 * 1024 * 1024)}]]></description>
+      <enclosure url="https://media.example.test/oversized.mp3" type="audio/mpeg"/>
+    </item>
+  </channel></rss>`;
+  expect(Buffer.byteLength(body)).toBeGreaterThan(10 * 1024 * 1024);
+  await addFeed(page, url, body);
+  await expect(page.locator("#library-list")).toContainText("CDATA Truncation Podcast");
+  await expect(page.locator("#library-list")).toContainText("Complete Early Episode");
+  await expect(page.locator("#rss-status")).toContainText("only the newest episodes are listed");
+});
+
 test("rejects an oversized feed when no complete episode fits inside the size limit", async ({ page }) => {
   const oversizedUrl = "https://feeds.example.test/oversized.xml";
   const oversizedBody = " ".repeat(10 * 1024 * 1024 + 1);
