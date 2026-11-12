@@ -219,6 +219,36 @@ test("parses video podcast enclosures and uses the browser's native video elemen
   expect(await page.locator("#audio-player").evaluate(element => element.src)).toBe("https://media.example.test/audio-two.mp3");
 });
 
+test("resets the active media element when replacing a backup clears a playing video episode", async ({ page }) => {
+  await addFeed(page, VIDEO_RSS_URL, VIDEO_RSS);
+  const videoEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Video Episode" });
+  await videoEpisode.getByText("Video Episode", { exact: true }).click();
+  await videoEpisode.getByRole("button", { name: "Play Episode" }).click();
+  await expect(page.locator("#video-player")).toBeVisible();
+
+  await openSection(page, "data-section");
+  await page.locator("#replace-backup").check();
+  const emptyBackup = {
+    schemaVersion: 2,
+    library: [],
+    queue: [],
+    favorites: [],
+    history: [],
+    inProgress: []
+  };
+  await page.locator("#import-backup").setInputFiles({
+    name: "empty.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(emptyBackup))
+  });
+
+  await expect(page.locator("#backup-status")).toContainText("replacing current data");
+  await expect(page.locator("#audio-player")).toBeVisible();
+  await expect(page.locator("#video-player")).toBeHidden();
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.currentEpisode).toBeNull();
+});
+
 test("parses Atom enclosure links and resolves relative audio URLs", async ({ page }) => {
   await addFeed(page, ATOM_URL, ATOM);
   await expect(page.locator("#library-list")).toContainText("Atom Regression Podcast");
