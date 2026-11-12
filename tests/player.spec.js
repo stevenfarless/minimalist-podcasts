@@ -89,6 +89,11 @@ async function mockMedia(page) {
       configurable: true,
       get() { return !this.__mockPlaying; }
     });
+    const originalRemoveAttribute = Element.prototype.removeAttribute;
+    Element.prototype.removeAttribute = function (name) {
+      originalRemoveAttribute.call(this, name);
+      if (this instanceof HTMLMediaElement && name === "src") sources.delete(this);
+    };
   });
 }
 
@@ -209,6 +214,8 @@ test("parses video podcast enclosures and uses the browser's native video elemen
   await expect(page.locator("#audio-player")).toBeVisible();
   await expect(video).toBeHidden();
   expect(await page.locator("#audio-player").evaluate(element => element.src)).toBe("https://media.example.test/video-audio.mp3");
+  await expect(videoEpisode.locator("#player-interface")).toHaveCount(1);
+  expect(await video.evaluate(element => element.src)).toBe("");
 
   const audioEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Audio Episode" });
   await audioEpisode.getByText("Audio Episode", { exact: true }).click();
@@ -247,6 +254,71 @@ test("resets the active media element when replacing a backup clears a playing v
   await expect(page.locator("#video-player")).toHaveJSProperty("hidden", true);
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.currentEpisode).toBeNull();
+});
+
+test("restoring a backup with a current episode stops the previously active media element", async ({ page }) => {
+  await addFeed(page, VIDEO_RSS_URL, VIDEO_RSS);
+  const videoEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Video Episode" });
+  await videoEpisode.getByText("Video Episode", { exact: true }).click();
+  await videoEpisode.getByRole("button", { name: "Play Episode" }).click();
+  const video = page.locator("#video-player");
+  await expect(video).toBeVisible();
+  expect(await video.evaluate(element => element.paused)).toBe(false);
+
+  const backup = {
+    schemaVersion: 2,
+    library: [],
+    queue: [],
+    favorites: [],
+    history: [],
+    inProgress: [],
+    currentEpisode: {
+      id: "restored-audio",
+      title: "Restored Audio Episode",
+      showTitle: "Backup Podcast",
+      audioUrl: "https://media.example.test/restored.mp3",
+      mediaType: "audio"
+    },
+    currentTime: 12,
+    playbackRate: 1
+  };
+  await openSection(page, "data-section");
+  await page.locator("#replace-backup").check();
+  await page.locator("#import-backup").setInputFiles({
+    name: "playing-backup.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup))
+  });
+
+  await expect(page.locator("#audio-player")).toHaveJSProperty("hidden", false);
+  await expect(video).toHaveJSProperty("hidden", true);
+  expect(await video.evaluate(element => element.paused)).toBe(true);
+  expect(await video.evaluate(element => element.src)).toBe("");
+  expect(await page.locator("#audio-player").evaluate(element => element.src)).toBe("https://media.example.test/restored.mp3");
+  expect(await page.locator("#audio-player").evaluate(element => element.paused)).toBe(true);
+});
+
+test("rejects a non-streaming multibyte feed that exceeds the byte limit", async ({ page }) => {
+  const url = "https://feeds.example.test/non-streaming-oversized.xml";
+  const body = '<?xml version="1.0"?><rss version="2.0"><channel><title>Oversized Unicode Feed</title><description>' +
+    "é".repeat(5_300_000) +
+    '</description><item><guid>one</guid><title>Episode</title><enclosure url="https://media.example.test/one.mp3" type="audio/mpeg"/></item></channel></rss>';
+  expect(body.length).toBeLessThan(10 * 1024 * 1024);
+  expect(Buffer.byteLength(body, "utf8")).toBeGreaterThan(10 * 1024 * 1024);
+  await page.evaluate(async ({ body }) => {
+    window.fetch = async () => ({
+      ok: true,
+      headers: { get: () => null },
+      body: null,
+      text: async () => body
+    });
+  }, { body });
+
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(url);
+  await page.getByRole("button", { name: "Add Feed" }).click();
+  await expect(page.locator("#rss-status")).toContainText("10 MB size limit");
+  await expect(page.locator("#library-list")).not.toContainText("Oversized Unicode Feed");
 });
 
 test("parses Atom enclosure links and resolves relative audio URLs", async ({ page }) => {
@@ -503,6 +575,7 @@ test("skips duplicate OPML subscriptions while adding new feed addresses", async
   const opml = '<?xml version="1.0"?><opml version="2.0"><head/><body>' +
     '<outline text="Existing" xmlUrl="' + RSS_URL + '"/>' +
     '<outline text="New Show" xmlUrl="https://opml.example.test/new.xml"/>' +
+    '<outline text="Duplicate New Show" xmlUrl="https://opml.example.test/new.xml"/>' +
     '</body></opml>';
   await page.locator("#import-opml").setInputFiles({
     name: "subscriptions.opml",
@@ -510,7 +583,7 @@ test("skips duplicate OPML subscriptions while adding new feed addresses", async
     buffer: Buffer.from(opml)
   });
   await expect(page.locator("#opml-status")).toContainText("1 new subscriptions");
-  await expect(page.locator("#opml-status")).toContainText("1 duplicates were skipped");
+  await expect(page.locator("#opml-status")).toContainText("2 duplicates were skipped");
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.library).toHaveLength(2);
   expect(saved.library.filter(show => show.feedUrl === RSS_URL)).toHaveLength(1);
