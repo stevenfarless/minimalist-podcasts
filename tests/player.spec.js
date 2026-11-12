@@ -371,6 +371,39 @@ test("rejects a non-streaming multibyte feed that exceeds the byte limit", async
   await expect(page.locator("#library-list")).not.toContainText("Oversized Unicode Feed");
 });
 
+test("resolves relative episode media against the final URL after a feed redirect", async ({ page }) => {
+  const requestedUrl = "https://feeds.example.test/redirect.xml";
+  const finalUrl = "https://feeds.example.test/published/season/feed.xml";
+  const feed = `<?xml version="1.0"?>
+  <feed xmlns="http://www.w3.org/2005/Atom">
+    <title>Redirect Podcast</title>
+    <entry><id>tag:example.test,2026:redirect-one</id><title>Redirect Episode</title>
+      <link rel="enclosure" type="audio/mpeg" href="../media/redirect.mp3"/>
+    </entry>
+  </feed>`;
+  await page.route(requestedUrl, route => route.fulfill({
+    status: 302,
+    headers: {
+      location: finalUrl,
+      "access-control-allow-origin": "*"
+    }
+  }));
+  await page.route(finalUrl, route => route.fulfill({
+    status: 200,
+    contentType: "application/atom+xml; charset=utf-8",
+    headers: { "access-control-allow-origin": "*" },
+    body: feed
+  }));
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(requestedUrl);
+  await page.getByRole("button", { name: "Add Feed" }).click();
+  await expect(page.locator("#library-list")).toContainText("Redirect Podcast");
+  await expect(page.locator("#library-list li[data-episode-id]")).toHaveAttribute(
+    "data-audio-url",
+    "https://feeds.example.test/published/media/redirect.mp3"
+  );
+});
+
 test("resolves relative feed and episode artwork against the feed address", async ({ page }) => {
   const url = "https://feeds.example.test/artwork/podcast.xml";
   const feed = `<?xml version="1.0"?>
