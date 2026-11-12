@@ -701,14 +701,48 @@ test("retains the newest played episode IDs and keeps the collection bounded", a
     localStorage.setItem(key, value);
   }, [STORAGE_KEY, JSON.stringify({ playedEpisodeIds: playedIds })]);
   await page.reload();
-  await addFeed(page, RSS_URL, RSS);
-  const episode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Episode One" });
-  await episode.getByText("Episode One", { exact: true }).click();
-  await episode.getByRole("button", { name: "Mark Played" }).click();
-  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  await openSection(page, "history-section");
+  let saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.playedEpisodeIds).toHaveLength(5000);
   expect(saved.playedEpisodeIds).toContain("played-5000");
   expect(saved.playedEpisodeIds).not.toContain("played-0");
+
+  await openSection(page, "data-section");
+  const replacement = {
+    schemaVersion: 2,
+    library: [],
+    queue: [],
+    playedEpisodeIds: Array.from({ length: 6000 }, (_, index) => "backup-" + index)
+  };
+  await page.locator("#replace-backup").check();
+  await page.locator("#import-backup").setInputFiles({
+    name: "played-replacement.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(replacement))
+  });
+  await expect(page.locator("#backup-status")).toContainText("replacing current data");
+  saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.playedEpisodeIds).toHaveLength(5000);
+  expect(saved.playedEpisodeIds).toContain("backup-5999");
+  expect(saved.playedEpisodeIds).not.toContain("backup-0");
+
+  const merge = {
+    schemaVersion: 2,
+    library: [],
+    queue: [],
+    playedEpisodeIds: Array.from({ length: 5000 }, (_, index) => "merge-" + index)
+  };
+  await page.locator("#replace-backup").uncheck();
+  await page.locator("#import-backup").setInputFiles({
+    name: "played-merge.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(merge))
+  });
+  await expect(page.locator("#backup-status")).toContainText("Backup merged");
+  saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.playedEpisodeIds).toHaveLength(5000);
+  expect(saved.playedEpisodeIds).toContain("merge-4999");
+  expect(saved.playedEpisodeIds).not.toContain("backup-5999");
 });
 
 test("keeps Podcast Index search results available when Apple Podcasts is unavailable", async ({ page }) => {
