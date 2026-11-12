@@ -329,7 +329,7 @@
           return {...episode, playedAt: String(item.playedAt || "")};
         }).filter(Boolean).slice(0, MAX_HISTORY);
         const playedIds = Array.isArray(saved.playedEpisodeIds)
-          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(0, 5000)
+          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(-5000)
           : history.map(item => item.id);
         const inProgress = (Array.isArray(saved.inProgress) ? saved.inProgress : [])
           .filter(item => isRecord(item) && isRecord(item.episode))
@@ -509,7 +509,8 @@
       const appleIdValue = raw.appleId != null ? raw.appleId :
         (raw.collectionId != null ? raw.collectionId :
           (raw.itunesId != null ? raw.itunesId :
-            (/^apple-\d+$/.test(suppliedId) ? suppliedId.slice(6) : "")));
+            (raw.trackId != null ? raw.trackId :
+              (/^apple-\d+$/.test(suppliedId) ? suppliedId.slice(6) : ""))));
       const appleId = appleIdValue === "" ? "" : String(appleIdValue);
       const feedUrl = safeHttpUrl(raw.feedUrl || raw.feedURL || raw.originalUrl || raw.url || "");
       const title = String(raw.title || raw.collectionName || raw.trackName || "Untitled Podcast").trim();
@@ -1021,7 +1022,7 @@
       const results = data.results
         .filter(item => item && (item.kind === "podcast" || item.wrapperType === "track"))
         .map(item => normalizeShow({...item, source: "apple"}))
-        .filter(item => item.title && item.feedUrl);
+        .filter(item => item.title && (item.feedUrl || item.appleId));
       return cacheSearchResults(appleSearchCache, cacheKey, results);
     }
 
@@ -1820,7 +1821,11 @@
     function markEpisodePlayed(episode, played) {
       const normalized = persistableEpisode(episode);
       if (played) {
+        playedEpisodeIdSet.delete(normalized.id);
         playedEpisodeIdSet.add(normalized.id);
+        while (playedEpisodeIdSet.size > 5000) {
+          playedEpisodeIdSet.delete(playedEpisodeIdSet.values().next().value);
+        }
         state.playedEpisodeIds = [...playedEpisodeIdSet];
         state.inProgress = (state.inProgress || []).filter(item => item.episode.id !== normalized.id);
         state.history = state.history.filter(item => item.id !== normalized.id);
