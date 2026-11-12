@@ -411,6 +411,7 @@
     let lastSavedTime = 0;
     const statusTimers = new WeakMap();
     let lastAppleRequestAt = 0;
+    let appleRequestQueue = Promise.resolve();
     const appleSearchCache = new Map();
     const podcastIndexSearchCache = new Map();
 
@@ -960,15 +961,27 @@
       return {show: actualShow, episodes, source, truncated: Boolean(truncated)};
     }
 
+    async function waitForAppleRequestSlot() {
+      const previous = appleRequestQueue;
+      let release;
+      appleRequestQueue = new Promise(resolve => { release = resolve; });
+      await previous;
+      try {
+        const waitMs = Math.max(0, APPLE_MIN_REQUEST_INTERVAL_MS - (Date.now() - lastAppleRequestAt));
+        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
+        lastAppleRequestAt = Date.now();
+      } finally {
+        release();
+      }
+    }
+
     async function fetchAppleJson(url, timeoutMs) {
       const targetUrl = safeHttpUrl(url);
       if (!targetUrl) throw new Error("Apple's catalogue URL is invalid.");
 
-      // Apple documents an approximate 20-request-per-minute limit. Apply
-      // spacing to both search and lookup calls so this page does not burst.
-      const waitMs = Math.max(0, APPLE_MIN_REQUEST_INTERVAL_MS - (Date.now() - lastAppleRequestAt));
-      if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
-      lastAppleRequestAt = Date.now();
+      // Reserve request starts in sequence so concurrent searches and lookups
+      // respect Apple's approximate 20-request-per-minute limit.
+      await waitForAppleRequestSlot();
 
       // Apple documents JSONP for cross-site searches. A dynamically added
       // script is not subject to fetch() CORS restrictions, including when
@@ -1435,11 +1448,13 @@
       elements.libraryEmpty.hidden = state.library.length > 0;
       const query = elements.libraryFilter.value.trim().toLowerCase();
       const sorted = [...state.library].filter(show => !query || (show.title + " " + show.artist).toLowerCase().includes(query)).sort((a, b) => a.title.localeCompare(b.title));
+      const fragment = document.createDocumentFragment();
       sorted.forEach(show => {
         const card = createShowCard(show, true, libraryPanels.get(show.id));
-        elements.libraryList.append(card.item);
+        fragment.append(card.item);
         libraryPanels.set(show.id, card.panel);
       });
+      elements.libraryList.append(fragment);
       syncSearchSubscribeButtons();
       placePlayerUnderEpisode();
     }
@@ -1542,6 +1557,7 @@
         return (episode.title + " " + episode.description + " " + episode.date).toLowerCase().includes(filter);
       });
       panel.list.replaceChildren();
+      const fragment = document.createDocumentFragment();
       visibleEpisodes.forEach(episode => {
         const item = makeElement("li");
         item.dataset.episodeId = episode.id;
@@ -1602,14 +1618,15 @@
 
         const separator = document.createElement("hr");
         item.append(disclosure, separator);
-        panel.list.append(item);
+        fragment.append(item);
       });
       if (!visibleEpisodes.length) {
         const emptyMessage = panel.episodes.length
           ? "No episodes match this filter."
           : "No episodes are available in this feed.";
-        panel.list.append(makeElement("li", emptyMessage));
+        fragment.append(makeElement("li", emptyMessage));
       }
+      panel.list.append(fragment);
       placePlayerUnderEpisode();
     }
 
@@ -1720,7 +1737,12 @@
       if (resumeAt !== undefined && Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0) {
         const seekOnMetadata = () => {
           media.removeEventListener("loadedmetadata", seekOnMetadata);
-          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) return;
+          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== normalized.id) {
+            media.removeEventListener("loadedmetadata", seekOnMetadata);
+            return;
+          }
+          if (!isCurrentPlaybackSource()) return;
+          media.removeEventListener("loadedmetadata", seekOnMetadata);
           const duration = media.duration;
           if (Number.isFinite(duration) && duration > 0) media.currentTime = Math.min(Number(resumeAt), Math.max(0, duration - 1));
         };
@@ -2067,13 +2089,13 @@
       for (const raw of imported) {
         const show = normalizeShow(raw);
         if (!existingFeedUrls.has(show.feedUrl) && !existingShowIds.has(show.id)) {
+          existingFeedUrls.add(show.feedUrl);
+          existingShowIds.add(show.id);
           if (state.library.length >= MAX_SUBSCRIPTIONS) {
             skippedByLimit += 1;
             continue;
           }
           state.library.push(show);
-          existingFeedUrls.add(show.feedUrl);
-          existingShowIds.add(show.id);
           added += 1;
         }
       }
@@ -2302,7 +2324,12 @@
         const episodeId = state.currentEpisode.id, resumeAt = Number(state.currentTime) || 0;
         const restorePosition = () => {
           targetMedia.removeEventListener("loadedmetadata", restorePosition);
-          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== episodeId) return;
+          if (generation !== playbackGeneration || !state.currentEpisode || state.currentEpisode.id !== episodeId) {
+            targetMedia.removeEventListener("loadedmetadata", restorePosition);
+            return;
+          }
+          if (!isCurrentPlaybackSource()) return;
+          targetMedia.removeEventListener("loadedmetadata", restorePosition);
           if (Number.isFinite(targetMedia.duration) && targetMedia.duration > 0 && resumeAt > 0 && resumeAt < targetMedia.duration) targetMedia.currentTime = resumeAt;
         };
         targetMedia.addEventListener("loadedmetadata", restorePosition);
