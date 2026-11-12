@@ -2055,18 +2055,31 @@
       }
       if (!Array.isArray(raw.library) || !Array.isArray(raw.queue)) throw new Error("This file does not appear to be a compatible podcast player backup.");
       const clean = emptyState();
-      clean.library = raw.library.map(item => {
+      const libraryFeedUrls = new Set();
+      const libraryIds = new Set();
+      for (const item of raw.library) {
         if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid podcast subscription.");
         const show = normalizeShow(item);
         if (!show.feedUrl && !show.appleId) throw new Error("A podcast subscription is missing its feed address and catalogue ID.");
-        return show;
-      });
-      const normalizeEpisodes = (items, key) => (items || []).map(item => {
-        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid episode in " + key + ".");
-        return persistableEpisode(normalizeEpisode(item));
-      });
-      clean.queue = normalizeEpisodes(raw.queue, "queue");
-      clean.favorites = normalizeEpisodes(raw.favorites, "favorites");
+        if ((show.feedUrl && libraryFeedUrls.has(show.feedUrl)) || libraryIds.has(show.id)) continue;
+        clean.library.push(show);
+        libraryIds.add(show.id);
+        if (show.feedUrl) libraryFeedUrls.add(show.feedUrl);
+        if (clean.library.length >= 1000) break;
+      }
+      const normalizeEpisodes = (items, key, limit, requireAudio) => {
+        const seenIds = new Set();
+        return (items || []).map(item => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid episode in " + key + ".");
+          return persistableEpisode(normalizeEpisode(item));
+        }).filter(episode => {
+          if (!episode.id || seenIds.has(episode.id) || (requireAudio && !episode.audioUrl)) return false;
+          seenIds.add(episode.id);
+          return true;
+        }).slice(0, limit);
+      };
+      clean.queue = normalizeEpisodes(raw.queue, "queue", 1000, true);
+      clean.favorites = normalizeEpisodes(raw.favorites, "favorites", 1000, false);
       const historyIds = new Set();
       clean.history = (raw.history || []).map(item => {
         if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid episode in history.");
@@ -2075,20 +2088,46 @@
         historyIds.add(episode.id);
         return {...episode, playedAt: String(item.playedAt || "")};
       }).filter(Boolean).slice(0, MAX_HISTORY);
-      clean.inProgress = (raw.inProgress || []).map(item => {
+      const progressByEpisode = new Map();
+      for (const item of raw.inProgress || []) {
         if (!item || typeof item !== "object" || Array.isArray(item) || !item.episode || typeof item.episode !== "object" || Array.isArray(item.episode) || typeof item.episode.id !== "string" || !item.episode.id.trim()) throw new Error("The backup contains an invalid listening-progress entry.");
         const currentTime = Number(item.currentTime), duration = Number(item.duration);
         if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) throw new Error("The backup contains invalid listening-progress times.");
-        return {episode: persistableEpisode(normalizeEpisode(item.episode)), currentTime, duration, updatedAt: String(item.updatedAt || "")};
-      });
+        const episode = persistableEpisode(normalizeEpisode(item.episode));
+        if (!episode.audioUrl) continue;
+        const entry = {
+          episode,
+          currentTime: duration > 0 ? Math.min(currentTime, duration) : currentTime,
+          duration,
+          updatedAt: String(item.updatedAt || "")
+        };
+        const existing = progressByEpisode.get(episode.id);
+        if (!existing || (Date.parse(entry.updatedAt) || 0) > (Date.parse(existing.updatedAt) || 0)) progressByEpisode.set(episode.id, entry);
+      }
+      clean.inProgress = [...progressByEpisode.values()]
+        .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
+        .slice(0, 200);
       if (raw.playedEpisodeIds != null && (!Array.isArray(raw.playedEpisodeIds) || raw.playedEpisodeIds.some(id => typeof id !== "string" || !id.trim()))) throw new Error("The backup contains invalid played-episode IDs.");
       clean.playedEpisodeIds = raw.playedEpisodeIds != null
         ? [...new Set(raw.playedEpisodeIds)].slice(-MAX_PLAYED_EPISODES)
         : clean.history.map(item => item.id);
       if (raw.diagnostics != null && !Array.isArray(raw.diagnostics)) throw new Error("The backup contains invalid diagnostics.");
-      clean.diagnostics = (raw.diagnostics || []).filter(item => item && typeof item === "object").slice(-100);
+      clean.diagnostics = (raw.diagnostics || [])
+        .filter(item => item && typeof item === "object" && !Array.isArray(item))
+        .map(item => ({
+          feedUrl: safeHttpUrl(item.feedUrl || ""),
+          message: String(item.message || "Unknown event").slice(0, 1000),
+          kind: String(item.kind || "event").slice(0, 100),
+          at: typeof item.at === "string" ? item.at : ""
+        }))
+        .slice(-100);
       if (raw.expandedSections != null && (typeof raw.expandedSections !== "object" || Array.isArray(raw.expandedSections))) throw new Error("The backup contains invalid interface settings.");
-      clean.expandedSections = raw.expandedSections || {};
+      clean.expandedSections = {};
+      if (raw.expandedSections) {
+        for (const [key, value] of Object.entries(raw.expandedSections)) {
+          if (/^[a-z][a-z0-9-]{0,80}$/i.test(key) && typeof value === "boolean") clean.expandedSections[key] = value;
+        }
+      }
       if (raw.currentEpisode != null && (typeof raw.currentEpisode !== "object" || Array.isArray(raw.currentEpisode))) throw new Error("The backup contains an invalid current episode.");
       if (raw.currentEpisode && (typeof raw.currentEpisode.id !== "string" || !raw.currentEpisode.id.trim() || !safeHttpUrl(raw.currentEpisode.audioUrl))) throw new Error("The backup contains an invalid current episode.");
       clean.currentEpisode = raw.currentEpisode ? persistableEpisode(normalizeEpisode(raw.currentEpisode)) : null;
