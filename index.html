@@ -607,9 +607,13 @@
 
     function cleanHtmlToText(value) {
       if (!value) return "";
-      const parsed = new DOMParser().parseFromString(String(value).slice(0, 20000), "text/html");
-      parsed.querySelectorAll("script, style, iframe, object, embed, noscript").forEach(node => node.remove());
-      return (parsed.body.textContent || "").replace(/\s+/g, " ").trim().slice(0, 3000);
+      // Parse publisher HTML inside an inert template. A detached DOMParser HTML
+      // document can still fetch embedded images and frames even when only its
+      // textContent is used.
+      const template = document.createElement("template");
+      template.innerHTML = String(value).slice(0, 20000);
+      template.content.querySelectorAll("script, style, iframe, object, embed, noscript, img, picture, video, audio, source, track, link, meta").forEach(node => node.remove());
+      return (template.content.textContent || "").replace(/\s+/g, " ").trim().slice(0, 3000);
     }
 
     function firstByLocalName(parent, names) {
