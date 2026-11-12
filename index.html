@@ -198,6 +198,7 @@
     const RSS_PROXY_PREFIX = "https://proxy.cors.dev/";
     const STORAGE_KEY = "plain-html-podcast-player-v1";
     const MAX_HISTORY = 30;
+    const MAX_PLAYED_EPISODES = 5000;
     const MAX_FEED_BYTES = 10 * 1024 * 1024;
     const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
     const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -329,7 +330,7 @@
           return {...episode, playedAt: String(item.playedAt || "")};
         }).filter(Boolean).slice(0, MAX_HISTORY);
         const playedIds = Array.isArray(saved.playedEpisodeIds)
-          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(-5000)
+          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(-MAX_PLAYED_EPISODES)
           : history.map(item => item.id);
         const inProgress = (Array.isArray(saved.inProgress) ? saved.inProgress : [])
           .filter(item => isRecord(item) && isRecord(item.episode))
@@ -372,7 +373,7 @@
           queue,
           favorites,
           history,
-          playedEpisodeIds: [...new Set(playedIds)],
+          playedEpisodeIds: [...new Set(playedIds)].slice(-MAX_PLAYED_EPISODES),
           inProgress,
           diagnostics,
           expandedSections,
@@ -1135,8 +1136,8 @@
         podcastIndexCount: indexResults.length,
         duplicateCount: appleResults.length + indexResults.length - results.length,
         failures: [
-          appleOutcome.status === "rejected" ? "Apple Podcasts unavailable: " + (appleOutcome.reason.message || "request failed") : "",
-          indexOutcome.status === "rejected" ? "Podcast Index unavailable: " + (indexOutcome.reason.message || "request failed") : ""
+          appleOutcome.status === "rejected" ? "Apple Podcasts unavailable: " + (appleOutcome.reason && appleOutcome.reason.message || "request failed") : "",
+          indexOutcome.status === "rejected" ? "Podcast Index unavailable: " + (indexOutcome.reason && indexOutcome.reason.message || "request failed") : ""
         ].filter(Boolean)
       };
     }
@@ -1837,7 +1838,7 @@
       if (played) {
         playedEpisodeIdSet.delete(normalized.id);
         playedEpisodeIdSet.add(normalized.id);
-        while (playedEpisodeIdSet.size > 5000) {
+        while (playedEpisodeIdSet.size > MAX_PLAYED_EPISODES) {
           playedEpisodeIdSet.delete(playedEpisodeIdSet.values().next().value);
         }
         state.playedEpisodeIds = [...playedEpisodeIdSet];
@@ -2082,7 +2083,7 @@
       });
       if (raw.playedEpisodeIds != null && (!Array.isArray(raw.playedEpisodeIds) || raw.playedEpisodeIds.some(id => typeof id !== "string" || !id.trim()))) throw new Error("The backup contains invalid played-episode IDs.");
       clean.playedEpisodeIds = raw.playedEpisodeIds != null
-        ? [...new Set(raw.playedEpisodeIds)]
+        ? [...new Set(raw.playedEpisodeIds)].slice(-MAX_PLAYED_EPISODES)
         : clean.history.map(item => item.id);
       if (raw.diagnostics != null && !Array.isArray(raw.diagnostics)) throw new Error("The backup contains invalid diagnostics.");
       clean.diagnostics = (raw.diagnostics || []).filter(item => item && typeof item === "object").slice(-100);
@@ -2136,7 +2137,11 @@
           if (!existing || (Date.parse(item.updatedAt) || 0) > (Date.parse(existing.updatedAt) || 0)) progressByEpisode.set(id, item);
         }
         state.inProgress = [...progressByEpisode.values()].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)).slice(0, 200);
-        state.playedEpisodeIds = [...new Set([...(state.playedEpisodeIds || []), ...incoming.playedEpisodeIds])];
+        const mergedPlayedIds = new Set([...(state.playedEpisodeIds || []), ...incoming.playedEpisodeIds]);
+        while (mergedPlayedIds.size > MAX_PLAYED_EPISODES) {
+          mergedPlayedIds.delete(mergedPlayedIds.values().next().value);
+        }
+        state.playedEpisodeIds = [...mergedPlayedIds];
         state.diagnostics = [...(state.diagnostics || []), ...incoming.diagnostics].slice(-100);
         if (!state.currentEpisode && incoming.currentEpisode) {state.currentEpisode = incoming.currentEpisode; state.currentTime = incoming.currentTime;}
       }
