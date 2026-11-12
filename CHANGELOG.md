@@ -11,6 +11,8 @@
 - Keep the shared player attached to the correct episode when video falls back to its audio enclosure.
 - Enforce the feed-size limit using UTF-8 byte counts in browsers without streaming response support.
 - Bound feed-cache timestamps and use set-based deduplication when loading subscriptions and importing OPML.
+- Preserve the newest played-episode IDs within the 5,000-entry limit, including during backup restores and merges.
+- Keep Apple search results that need a catalogue lookup, recognize Apple's `trackId`, and prioritize preferred RSS/Atom fields even when they appear later in the XML.
 
 ## 2.1.2
 
