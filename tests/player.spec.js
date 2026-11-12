@@ -116,6 +116,16 @@ const COMPACT_STORAGE_FIXTURE = {
     description: "c".repeat(3000)
   }
 };
+const BACKUP_SWAP_FIXTURE = {
+  library: [
+    { appleId: 111, title: "Podcast A", feedUrl: "https://feeds.example.test/a.xml" },
+    { appleId: 222, title: "Podcast B", feedUrl: "https://feeds.example.test/b.xml" }
+  ],
+  queue: [],
+  favorites: [],
+  history: [],
+  inProgress: []
+};
 const BACKUP_INDEX_FIXTURE = {
   library: [{
     appleId: 111,
@@ -192,6 +202,9 @@ test.beforeEach(async ({ page }, testInfo) => {
   }
   if (testInfo.title === "updates a subscription feed address without retaining a stale merge index") {
     await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(BACKUP_INDEX_FIXTURE)]);
+  }
+  if (testInfo.title === "matches backup subscription updates by stable ID when two feed URLs are exchanged") {
+    await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(BACKUP_SWAP_FIXTURE)]);
   }
   if (testInfo.title === "bounds saved descriptions and metadata before writing browser storage") {
     await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(COMPACT_STORAGE_FIXTURE)]);
@@ -847,6 +860,35 @@ test("deduplicates and normalizes collections when replacing a backup", async ({
   expect(saved.diagnostics[0].feedUrl).toBe("");
   expect(saved.diagnostics[0].message).toHaveLength(1000);
   expect(saved.expandedSections).toEqual({ "history-section": true });
+});
+
+test("matches backup subscription updates by stable ID when two feed URLs are exchanged", async ({ page }) => {
+  const feedA = "https://feeds.example.test/a.xml";
+  const feedB = "https://feeds.example.test/b.xml";
+  const backup = {
+    schemaVersion: 2,
+    library: [
+      { appleId: 111, title: "Podcast A Updated", feedUrl: feedB },
+      { appleId: 222, title: "Podcast B Updated", feedUrl: feedA }
+    ],
+    queue: [],
+    favorites: [],
+    history: [],
+    inProgress: []
+  };
+  await openSection(page, "data-section");
+  await page.locator("#import-backup").setInputFiles({
+    name: "feed-url-swap.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup))
+  });
+  await expect(page.locator("#backup-status")).toContainText("Backup merged");
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library).toHaveLength(2);
+  expect(saved.library.find(show => show.appleId === "111").title).toBe("Podcast A Updated");
+  expect(saved.library.find(show => show.appleId === "111").feedUrl).toBe(feedB);
+  expect(saved.library.find(show => show.appleId === "222").title).toBe("Podcast B Updated");
+  expect(saved.library.find(show => show.appleId === "222").feedUrl).toBe(feedA);
 });
 
 test("updates a subscription feed address without retaining a stale merge index", async ({ page }) => {
