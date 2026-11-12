@@ -494,7 +494,8 @@
       if (typeof value !== "string" || !value.trim() || value.length > 4096) return "";
       try {
         const parsed = baseUrl ? new URL(value.trim(), baseUrl) : new URL(value.trim());
-        return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
+        if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.username || parsed.password) return "";
+        return parsed.href;
       } catch (error) {
         return "";
       }
