@@ -243,8 +243,8 @@ test("resets the active media element when replacing a backup clears a playing v
   });
 
   await expect(page.locator("#backup-status")).toContainText("replacing current data");
-  await expect(page.locator("#audio-player")).toBeVisible();
-  await expect(page.locator("#video-player")).toBeHidden();
+  await expect(page.locator("#audio-player")).toHaveJSProperty("hidden", false);
+  await expect(page.locator("#video-player")).toHaveJSProperty("hidden", true);
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.currentEpisode).toBeNull();
 });
