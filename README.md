@@ -37,7 +37,7 @@ An internet connection is required for catalogue search, feed retrieval, and med
 
 Subscriptions, queue contents, favorites, listening history, playback positions, and preferences are stored in the browser's local storage for the current site origin. Clearing browser site data can erase this information. Use the JSON backup feature before moving browsers or clearing site data.
 
-Apple Podcasts searches go directly to Apple. Podcast Index searches go through the PinePods hosted search service. RSS requests may use the public `proxy.cors.dev` CORS proxy when a publisher's feed does not permit direct browser access. Audio is streamed from the podcast publisher or its hosting provider. These external services can receive request metadata such as IP address and requested URLs. The project does not operate its own server or user database.
+Apple Podcasts searches go directly to Apple. Podcast Index searches go through the PinePods hosted search service. Publisher-supplied HTML descriptions are reduced to text using an inert template, so embedded images and frames are not loaded as tracking resources. RSS requests may use the public `proxy.cors.dev` CORS proxy when a publisher's feed does not permit direct browser access. Audio is streamed from the podcast publisher or its hosting provider. These external services can receive request metadata such as IP address and requested URLs. The project does not operate its own server or user database.
 
 No API keys are embedded in the HTML file. The PinePods search endpoint and public CORS proxy are third-party dependencies; their availability, policies, and behavior may change.
 
