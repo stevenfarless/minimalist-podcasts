@@ -1193,7 +1193,9 @@
       const merged = new Map();
       const allResults = [...appleResults, ...podcastIndexResults];
       for (const show of allResults) {
-        const feedKey = show.feedUrl ? show.feedUrl.replace(/\/+$/, "").toLowerCase() : "";
+        // URL parsing already normalizes the hostname. Preserve path and
+        // query case because servers may treat those components as case-sensitive.
+        const feedKey = show.feedUrl || "";
         const fallbackKey = show.appleId ? "apple:" + show.appleId :
           "show:" + (show.title + "|" + show.artist).toLocaleLowerCase();
         const key = feedKey || fallbackKey;
