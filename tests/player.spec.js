@@ -181,6 +181,31 @@ test("imports RSS, renders episodes, and supports queue, favorites, and played s
   expect(saved.playedEpisodeIds).toContain(saved.queue[0].id);
 });
 
+test("prefers the highest-priority feed fields regardless of XML order", async ({ page }) => {
+  const url = "https://feeds.example.test/field-priority.xml";
+  const feed = `<?xml version="1.0" encoding="UTF-8"?>
+  <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+    <channel><title>Field Priority Podcast</title>
+      <item>
+        <guid>field-priority-one</guid>
+        <title>Field Priority Episode</title>
+        <updated>2026-11-01T12:00:00Z</updated>
+        <pubDate>Tue, 10 Nov 2026 12:00:00 GMT</pubDate>
+        <description>Short summary.</description>
+        <content:encoded><![CDATA[<p>Full episode description.</p>]]></content:encoded>
+        <enclosure url="https://media.example.test/field-priority.mp3" type="audio/mpeg"/>
+      </item>
+    </channel>
+  </rss>`;
+  await addFeed(page, url, feed);
+  const episode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Field Priority Episode" });
+  await episode.getByText("Field Priority Episode", { exact: true }).click();
+  await episode.getByRole("button", { name: "Add to Queue" }).click();
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.queue[0].date).toBe("Tue, 10 Nov 2026 12:00:00 GMT");
+  expect(saved.queue[0].description).toBe("Full episode description.");
+});
+
 test("parses RSS 1.0 RDF feeds and selects audio over non-audio enclosures", async ({ page }) => {
   await addFeed(page, RDF_URL, RDF);
   await expect(page.locator("#library-list")).toContainText("RDF Podcast");
