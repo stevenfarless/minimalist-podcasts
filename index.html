@@ -597,10 +597,15 @@
     function firstByLocalName(parent, names) {
       if (!parent) return null;
       const wanted = new Set(names.map(name => name.toLowerCase()));
+      const firstMatches = new Map();
       const all = parent.getElementsByTagName("*");
       for (let i = 0; i < all.length; i += 1) {
         const name = (all[i].localName || all[i].nodeName.split(":").pop()).toLowerCase();
-        if (wanted.has(name)) return all[i];
+        if (wanted.has(name) && !firstMatches.has(name)) firstMatches.set(name, all[i]);
+      }
+      for (const name of names) {
+        const match = firstMatches.get(name.toLowerCase());
+        if (match) return match;
       }
       return null;
     }
@@ -624,13 +629,18 @@
     function directChild(parent, names) {
       if (!parent) return null;
       const wanted = new Set(names.map(name => name.toLowerCase()));
+      const firstMatches = new Map();
       const children = parent.children || parent.childNodes || [];
       for (let i = 0; i < children.length; i += 1) {
         const node = children[i];
         if (node.nodeType === 1 || node.localName) {
           const name = String(node.localName || node.nodeName.split(":").pop()).toLowerCase();
-          if (wanted.has(name)) return node;
+          if (wanted.has(name) && !firstMatches.has(name)) firstMatches.set(name, node);
         }
+      }
+      for (const name of names) {
+        const match = firstMatches.get(name.toLowerCase());
+        if (match) return match;
       }
       return null;
     }
@@ -673,12 +683,16 @@
     function durationToSeconds(value) {
       if (!value) return 0;
       const input = String(value).trim();
-      if (/^\d+(\.\d+)?$/.test(input)) return Number(input);
+      if (/^\d+(\.\d+)?$/.test(input)) {
+        const seconds = Number(input);
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+      }
       const parts = input.split(":").map(part => Number(part));
-      if (parts.some(part => !Number.isFinite(part))) return 0;
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      return 0;
+      if (parts.some(part => !Number.isFinite(part) || part < 0)) return 0;
+      const seconds = parts.length === 2 ? parts[0] * 60 + parts[1]
+        : parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+          : 0;
+      return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
     }
 
     function parseXmlDocument(xmlText) {
