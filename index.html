@@ -183,10 +183,10 @@
 
   <footer>
     <hr>
-    <p>Podcast Player runs in your browser. Search uses Apple Podcasts and Podcast Index through the PinePods hosted
-      search service. Episode lists come from the public RSS or Atom feed of the show you open. Library dates reflect
-      the last successful check; opening the library does not refresh feeds. Listening status, subscriptions, queues,
-      and backups are stored in this browser.</p>
+    <p>Podcast Player runs in your browser. Search requests go directly to Apple Podcasts and to Podcast Index through
+      the PinePods hosted search service. Episode lists come from the public RSS or Atom feed of the show you open.
+      Library dates reflect the last successful check; opening the library does not refresh feeds. Listening status,
+      subscriptions, queues, and backups are stored in this browser.</p>
   </footer>
 
   <script>
@@ -1101,6 +1101,7 @@
     }
 
     function cacheSearchResults(cache, cacheKey, results) {
+      cache.delete(cacheKey);
       cache.set(cacheKey, {savedAt: Date.now(), results});
       // Keep each in-memory cache bounded during long sessions.
       if (cache.size > 40) cache.delete(cache.keys().next().value);
@@ -1109,7 +1110,14 @@
 
     function getCachedSearchResults(cache, cacheKey) {
       const cached = cache.get(cacheKey);
-      return cached && Date.now() - cached.savedAt < SEARCH_CACHE_TTL_MS ? cached.results : null;
+      if (!cached) return null;
+      if (Date.now() - cached.savedAt >= SEARCH_CACHE_TTL_MS) {
+        cache.delete(cacheKey);
+        return null;
+      }
+      cache.delete(cacheKey);
+      cache.set(cacheKey, cached);
+      return cached.results;
     }
 
     async function searchApple(query) {
@@ -1552,6 +1560,7 @@
         const cached = cachedResult && Date.now() - cachedAt < LATEST_CACHE_TTL_MS ? cachedResult : null;
         let result;
         if (cached) {
+          cacheFeed(feedUrl, cachedResult);
           result = cached;
         } else if (settings.prefetched) {
           result = settings.prefetched;
