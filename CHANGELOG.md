@@ -7,6 +7,10 @@
 - Retry transient failures from the individual feed refresh action.
 - Reset both native media elements when restoring a backup that clears the current episode.
 - Synchronize the README and package metadata with the application version.
+- Stop previously active media when restoring a backup with a different current episode, and release stale media sources when switching between audio and video.
+- Keep the shared player attached to the correct episode when video falls back to its audio enclosure.
+- Enforce the feed-size limit using UTF-8 byte counts in browsers without streaming response support.
+- Bound feed-cache timestamps and use set-based deduplication when loading subscriptions and importing OPML.
 
 ## 2.1.2
 
