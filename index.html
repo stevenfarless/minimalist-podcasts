@@ -863,6 +863,10 @@
           }
           text = new TextDecoder("utf-8").decode(bytes);
         } else {
+          const declaredLength = Number(response.headers.get("Content-Length"));
+          if (Number.isFinite(declaredLength) && declaredLength > MAX_FEED_BYTES) {
+            throw new Error("Feed response exceeds the " + (MAX_FEED_BYTES / 1048576) + " MB size limit in this browser.");
+          }
           text = await response.text();
           if (new Blob([text]).size > MAX_FEED_BYTES) {
             throw new Error("Feed response exceeds the " + (MAX_FEED_BYTES / 1048576) + " MB size limit in this browser.");
