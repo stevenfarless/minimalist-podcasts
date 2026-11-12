@@ -2,6 +2,15 @@
 
 ## 2.2.0
 
+- Normalize duplicate played-episode IDs before applying the 5,000-entry cap, and enforce collection limits during additions and backup merges.
+- Keep backup subscription indexes synchronized when feed addresses change, preventing a later subscription from overwriting the wrong show.
+- Resolve relative RSS/Atom artwork and media links against the feed address, including the final URL after an HTTP redirect.
+- Serialize Apple catalogue request starts so concurrent searches and lookups honor the configured request interval.
+- Ignore stale media metadata events before applying saved playback positions.
+- Trim oversized feeds with an XML-aware scanner that ignores closing-tag text inside CDATA, comments, processing instructions, and quoted attributes.
+- Avoid rebuilding unrelated episode panels and batch large episode/library DOM insertions with document fragments.
+- Bound saved podcast descriptions and reject non-finite numeric metadata before persisting it.
+
 - Remove the Latest Episodes section and its related filtering and sorting functionality.
 - Fall back to an episode's audio enclosure when native video playback fails and the feed provides an audio alternative.
 - Retry transient failures from the individual feed refresh action.
