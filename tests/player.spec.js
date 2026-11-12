@@ -471,6 +471,27 @@ test("restoring a backup with a current episode stops the previously active medi
   expect(await page.locator("#audio-player").evaluate(element => element.paused)).toBe(true);
 });
 
+test("rejects a declared oversized non-streaming feed before reading its body", async ({ page }) => {
+  const url = "https://feeds.example.test/declared-oversized.xml";
+  await page.evaluate(() => {
+    window.feedTextReadCount = 0;
+    window.fetch = async () => ({
+      ok: true,
+      headers: { get: name => name.toLowerCase() === "content-length" ? String(10 * 1024 * 1024 + 1) : null },
+      body: null,
+      text: async () => {
+        window.feedTextReadCount += 1;
+        return "<rss/>";
+      }
+    });
+  });
+  await openSection(page, "rss-section");
+  await page.locator("#rss-url").fill(url);
+  await page.getByRole("button", { name: "Add Feed" }).click();
+  await expect(page.locator("#rss-status")).toContainText("10 MB size limit");
+  expect(await page.evaluate(() => window.feedTextReadCount)).toBe(0);
+});
+
 test("rejects a non-streaming multibyte feed that exceeds the byte limit", async ({ page }) => {
   const url = "https://feeds.example.test/non-streaming-oversized.xml";
   const body = '<?xml version="1.0"?><rss version="2.0"><channel><title>Oversized Unicode Feed</title><description>' +
