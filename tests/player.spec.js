@@ -599,7 +599,7 @@ test("truncates oversized feeds without treating text inside CDATA as an episode
   await addFeed(page, url, body);
   await expect(page.locator("#library-list")).toContainText("CDATA Truncation Podcast");
   await expect(page.locator("#library-list")).toContainText("Complete Early Episode");
-  await expect(page.locator("#rss-status")).toContainText("only the newest episodes are listed");
+  await expect(page.locator("#library-list")).toContainText("only the newest episodes are listed");
 });
 
 test("rejects an oversized feed when no complete episode fits inside the size limit", async ({ page }) => {
@@ -914,6 +914,9 @@ test("looks up the feed URL for Apple search results that omit it", async ({ pag
 
 test("retains the newest played episode IDs and keeps the collection bounded", async ({ page }) => {
   await openSection(page, "history-section");
+  await page.evaluate(() => {
+    document.querySelector("#history-section").dispatchEvent(new Event("toggle"));
+  });
   let saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.playedEpisodeIds).toHaveLength(5000);
   expect(saved.playedEpisodeIds).toContain("played-0");
