@@ -317,7 +317,7 @@
           library.push(show);
           libraryIds.add(show.id);
           if (show.feedUrl) feedUrls.add(show.feedUrl);
-          if (library.length >= 1000) break;
+          if (library.length >= MAX_SUBSCRIPTIONS) break;
         }
         const queue = normalizeStoredEpisodes(saved.queue, MAX_QUEUE_EPISODES).filter(item => item.audioUrl);
         const favorites = normalizeStoredEpisodes(saved.favorites, MAX_FAVORITE_EPISODES);
@@ -1184,7 +1184,7 @@
       const existingIndex = state.library.findIndex(item => item.id === normalized.id || (normalized.feedUrl && item.feedUrl === normalized.feedUrl));
       if (existingIndex < 0 && state.library.length >= MAX_SUBSCRIPTIONS) {
         setStatus(elements.playerStatus, "Your library has reached the " + MAX_SUBSCRIPTIONS + "-podcast limit. Remove a subscription before adding another.", true);
-        return;
+        return false;
       }
       if (existingIndex >= 0) {
         const existing = state.library[existingIndex];
@@ -1197,6 +1197,7 @@
       renderLibrary();
 
       elements.librarySection.open = true;
+      return true;
     }
 
     function unsubscribeShow(showId) {
@@ -1694,6 +1695,10 @@
       }
       currentQueueIndex = index;
       const targetMedia = normalized.mediaType === "video" ? elements.video : elements.audioElement;
+      if (index < 0 && state.queue.length >= MAX_QUEUE_EPISODES) {
+        setStatus(elements.playerStatus, "Your queue has reached the " + MAX_QUEUE_EPISODES + "-episode limit.", true);
+        return;
+      }
       if (elements.audio !== targetMedia) {
         const previousMedia = elements.audio;
         if (!previousMedia.paused) previousMedia.pause();
@@ -2012,9 +2017,12 @@
         const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
         const parsed = parseFeed(fetched.documentXml, show, fetched.source, fetched.truncated, fetched.entries);
         if (!parsed.episodes.length) throw new Error("The feed opened, but it did not contain any podcast episodes.");
+        if (!subscribeShow(parsed.show)) {
+          setStatus(elements.rssStatus, "Your library has reached the " + MAX_SUBSCRIPTIONS + "-podcast limit.", true);
+          return;
+        }
         cacheFeed(feedUrl, parsed);
         latestFeedCacheTimestamps.set(feedUrl, Date.now());
-        subscribeShow(parsed.show);
         elements.rssUrl.value = "";
         elements.rssSection.open = false;
         elements.librarySection.open = true;
@@ -2099,7 +2107,7 @@
         clean.library.push(show);
         libraryIds.add(show.id);
         if (show.feedUrl) libraryFeedUrls.add(show.feedUrl);
-        if (clean.library.length >= 1000) break;
+        if (clean.library.length >= MAX_SUBSCRIPTIONS) break;
       }
       const normalizeEpisodes = (items, key, limit, requireAudio) => {
         const seenIds = new Set();
@@ -2143,7 +2151,7 @@
         .slice(0, MAX_IN_PROGRESS_EPISODES);
       if (raw.playedEpisodeIds != null && (!Array.isArray(raw.playedEpisodeIds) || raw.playedEpisodeIds.some(id => typeof id !== "string" || !id.trim()))) throw new Error("The backup contains invalid played-episode IDs.");
       clean.playedEpisodeIds = raw.playedEpisodeIds != null
-        ? [...new Set(raw.playedEpisodeIds)].slice(-MAX_PLAYED_EPISODES)
+        ? [...new Set(raw.playedEpisodeIds.slice().reverse())].reverse().slice(-MAX_PLAYED_EPISODES)
         : clean.history.map(item => item.id);
       if (raw.diagnostics != null && !Array.isArray(raw.diagnostics)) throw new Error("The backup contains invalid diagnostics.");
       clean.diagnostics = (raw.diagnostics || [])
@@ -2176,6 +2184,7 @@
       const parsed = JSON.parse(await readFileText(file, MAX_IMPORT_BYTES));
       const raw = parsed && parsed.data ? parsed.data : parsed;
       const incoming = validateBackupData(raw);
+      let skippedSubscriptionsByLimit = 0;
       if (elements.replaceBackup.checked) {
         feedCache.clear(); latestFeedCacheTimestamps.clear();
         for (const panel of libraryPanels.values()) {
@@ -2191,7 +2200,6 @@
           return [...map.values()];
         };
         const mergedLibrary = [...(state.library || [])];
-        let skippedSubscriptionsByLimit = 0;
         const subscriptionIndexesByFeed = new Map();
         const subscriptionIndexesById = new Map();
         mergedLibrary.forEach((show, index) => {
@@ -2231,7 +2239,7 @@
           const id = item.episode.id, existing = progressByEpisode.get(id);
           if (!existing || (Date.parse(item.updatedAt) || 0) > (Date.parse(existing.updatedAt) || 0)) progressByEpisode.set(id, item);
         }
-        state.inProgress = [...progressByEpisode.values()].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)).slice(0, 200);
+        state.inProgress = [...progressByEpisode.values()].sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)).slice(0, MAX_IN_PROGRESS_EPISODES);
         const mergedPlayedIds = new Set([...(state.playedEpisodeIds || []), ...incoming.playedEpisodeIds]);
         while (mergedPlayedIds.size > MAX_PLAYED_EPISODES) {
           mergedPlayedIds.delete(mergedPlayedIds.values().next().value);
