@@ -203,6 +203,13 @@ test("parses video podcast enclosures and uses the browser's native video elemen
   await expect(page.locator("#audio-player")).toBeHidden();
   expect(await video.evaluate(element => element.src)).toBe("https://media.example.test/video-one.mp4");
 
+  // If the browser or publisher cannot play the video enclosure, use the
+  // ordinary audio enclosure from the same episode when one is available.
+  await video.evaluate(element => element.dispatchEvent(new Event("error")));
+  await expect(page.locator("#audio-player")).toBeVisible();
+  await expect(video).toBeHidden();
+  expect(await page.locator("#audio-player").evaluate(element => element.src)).toBe("https://media.example.test/video-audio.mp3");
+
   const audioEpisode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Audio Episode" });
   await audioEpisode.getByText("Audio Episode", { exact: true }).click();
   await expect(audioEpisode.getByRole("link", { name: "Open Video File" })).toHaveCount(0);
