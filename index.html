@@ -328,21 +328,25 @@
         const playedIds = Array.isArray(saved.playedEpisodeIds)
           ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(-MAX_PLAYED_EPISODES)
           : history.map(item => item.id);
-        const inProgress = (Array.isArray(saved.inProgress) ? saved.inProgress : [])
-          .filter(item => isRecord(item) && isRecord(item.episode))
-          .map(item => {
-            const currentTime = Number(item.currentTime), duration = Number(item.duration);
-            if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) return null;
-            const episode = normalizeEpisode(item.episode);
-            if (!episode.id || !episode.audioUrl) return null;
-            return {
-              episode,
-              currentTime: duration > 0 ? Math.min(currentTime, duration) : currentTime,
-              duration,
-              updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : ""
-            };
-          })
-          .filter(Boolean)
+        const progressByEpisode = new Map();
+        for (const item of (Array.isArray(saved.inProgress) ? saved.inProgress : [])) {
+          if (!isRecord(item) || !isRecord(item.episode)) continue;
+          const currentTime = Number(item.currentTime), duration = Number(item.duration);
+          if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) continue;
+          const episode = normalizeEpisode(item.episode);
+          if (!episode.id || !episode.audioUrl) continue;
+          const entry = {
+            episode,
+            currentTime: duration > 0 ? Math.min(currentTime, duration) : currentTime,
+            duration,
+            updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : ""
+          };
+          const existing = progressByEpisode.get(episode.id);
+          if (!existing || (Date.parse(entry.updatedAt) || 0) > (Date.parse(existing.updatedAt) || 0)) {
+            progressByEpisode.set(episode.id, entry);
+          }
+        }
+        const inProgress = [...progressByEpisode.values()]
           .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
           .slice(0, 200);
         const diagnostics = (Array.isArray(saved.diagnostics) ? saved.diagnostics : [])
