@@ -400,7 +400,6 @@
     let activeSearchPanel = null;
     let nowPlayingAutoOpened = false;
     let panelSequence = 0;
-    let showLoadToken = 0;
     let searchToken = 0;
     let lastSavedTime = 0;
     const statusTimers = new WeakMap();
@@ -688,13 +687,12 @@
       if (!root || rootName === "parsererror" || documentXml.getElementsByTagName("parsererror").length > 0) {
         throw new Error("The podcast feed returned invalid XML.");
       }
-      const entries = allByLocalName(documentXml, "item");
-      const atomEntries = allByLocalName(documentXml, "entry");
-      const allEntries = entries.length ? entries : atomEntries;
-      if (!allEntries.length && !["rss", "feed", "rdf"].includes(rootName)) {
+      const rssEntries = allByLocalName(documentXml, "item");
+      const entries = rssEntries.length ? rssEntries : allByLocalName(documentXml, "entry");
+      if (!entries.length && !["rss", "feed", "rdf"].includes(rootName)) {
         throw new Error("The document is valid XML, but it is not an RSS or Atom podcast feed.");
       }
-      return {documentXml, entries: allEntries};
+      return {documentXml, entries};
     }
 
     // Trims a partially downloaded feed back to its last complete episode and closes
@@ -881,7 +879,7 @@
       return content ? content.textContent || "" : "";
     }
 
-    function parseFeed(documentXml, show, source, truncated) {
+    function parseFeed(documentXml, show, source, truncated, sourceEntries) {
       const root = documentXml.documentElement;
       const channel = allByLocalName(documentXml, "channel")[0] || root;
       const title = directTagText(channel, ["title"]) || show.title;
@@ -889,10 +887,6 @@
       const description = cleanHtmlToText(directTagText(channel, ["description", "subtitle", "summary"])) || show.description;
       const image = directFeedImage(channel) || show.artwork;
       const actualShow = {...show, title, artist: author, description, artwork: image};
-      const entries = allByLocalName(documentXml, "item");
-      const atomEntries = allByLocalName(documentXml, "entry");
-      const sourceEntries = entries.length ? entries : atomEntries;
-
       const episodes = sourceEntries.map((entry, index) => {
         const titleText = tagText(entry, ["title"]) || "Untitled Episode";
         const date = tagText(entry, ["pubDate", "published", "updated", "date"]);
@@ -1445,7 +1439,7 @@
           result = settings.prefetched;
         } else {
           const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
-          result = parseFeed(fetched.documentXml, panel.show, fetched.source, fetched.truncated);
+          result = parseFeed(fetched.documentXml, panel.show, fetched.source, fetched.truncated, fetched.entries);
         }
         if (token !== panel.loadToken) return;
         cacheFeed(feedUrl, result);
@@ -1530,7 +1524,6 @@
         disclosure.append(title);
 
         const expandedContent = makeElement("div");
-        if (panel.includeShowTitle) expandedContent.append(makeElement("p", "Podcast: " + episode.showTitle));
         expandedContent.append(makeElement("p", formatDate(episode.date) + " | " + formatDuration(episode.duration)));
         if (episode.description) expandedContent.append(makeElement("p", episode.description));
 
@@ -1578,7 +1571,7 @@
         item.append(disclosure, separator);
         panel.list.append(item);
       });
-      if (!visibleEpisodes.length && !panel.emptyMessage) {
+      if (!visibleEpisodes.length) {
         const emptyMessage = panel.episodes.length
           ? "No episodes match this filter."
           : "No episodes are available in this feed.";
@@ -1894,13 +1887,6 @@
       return playedEpisodeIdSet.has(episode.id) || state.history.some(item => item && item.id === episode.id);
     }
 
-    function episodeReleaseTime(episode) {
-      if (!episode.date) return Number.NEGATIVE_INFINITY;
-      const timestamp = Date.parse(episode.date);
-      return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
-    }
-
-
 
     function renderFavorites() {
       elements.favoritesList.replaceChildren();
@@ -1977,7 +1963,7 @@
       setStatus(elements.rssStatus, "Reading feed and adding the podcast…");
       try {
         const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
-        const parsed = parseFeed(fetched.documentXml, show, fetched.source, fetched.truncated);
+        const parsed = parseFeed(fetched.documentXml, show, fetched.source, fetched.truncated, fetched.entries);
         if (!parsed.episodes.length) throw new Error("The feed opened, but it did not contain any podcast episodes.");
         cacheFeed(feedUrl, parsed);
         latestFeedCacheTimestamps.set(feedUrl, Date.now());
