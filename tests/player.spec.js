@@ -571,6 +571,71 @@ test("merges a backup while preserving existing subscriptions and adding missing
   expect(saved.history.find(item => item.id === "backup-history").playedAt).toBe("2026-11-10T04:00:00Z");
 });
 
+test("deduplicates and normalizes collections when replacing a backup", async ({ page }) => {
+  const duplicateEpisode = {
+    id: "duplicate-episode",
+    title: "Duplicate Episode",
+    showTitle: "Backup Podcast",
+    audioUrl: "https://media.example.test/duplicate.mp3"
+  };
+  const backup = {
+    schemaVersion: 2,
+    library: [
+      { title: "Backup Podcast", feedUrl: "https://backup.example.test/feed.xml" },
+      { title: "Duplicate Backup Podcast", feedUrl: "https://backup.example.test/feed.xml" }
+    ],
+    queue: [duplicateEpisode, { ...duplicateEpisode, title: "Duplicate Queue Entry" }, {
+      id: "unplayable-queue-entry",
+      title: "No Audio",
+      audioUrl: ""
+    }],
+    favorites: [duplicateEpisode, { ...duplicateEpisode, title: "Duplicate Favorite" }],
+    inProgress: [
+      {
+        episode: { ...duplicateEpisode, id: "progress-episode" },
+        currentTime: 25,
+        duration: 100,
+        updatedAt: "2026-11-10T01:00:00Z"
+      },
+      {
+        episode: { ...duplicateEpisode, id: "progress-episode" },
+        currentTime: 150,
+        duration: 100,
+        updatedAt: "2026-11-10T02:00:00Z"
+      }
+    ],
+    diagnostics: [{
+      feedUrl: "javascript:alert(1)",
+      message: "x".repeat(1200),
+      kind: "event",
+      at: "2026-11-10T02:00:00Z"
+    }],
+    expandedSections: {
+      "history-section": true,
+      "invalid section": true,
+      "data-section": "true"
+    }
+  };
+  await openSection(page, "data-section");
+  await page.locator("#replace-backup").check();
+  await page.locator("#import-backup").setInputFiles({
+    name: "duplicate-data.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup))
+  });
+  await expect(page.locator("#backup-status")).toContainText("replacing current data");
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library).toHaveLength(1);
+  expect(saved.queue).toHaveLength(1);
+  expect(saved.queue[0].id).toBe("duplicate-episode");
+  expect(saved.favorites).toHaveLength(1);
+  expect(saved.inProgress).toHaveLength(1);
+  expect(saved.inProgress[0].currentTime).toBe(100);
+  expect(saved.diagnostics[0].feedUrl).toBe("");
+  expect(saved.diagnostics[0].message).toHaveLength(1000);
+  expect(saved.expandedSections).toEqual({ "history-section": true });
+});
+
 test("replaces existing browser data when the backup replacement option is selected", async ({ page }) => {
   await addFeed(page, RSS_URL, RSS);
   await openSection(page, "data-section");
