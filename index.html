@@ -1439,7 +1439,7 @@
         } else if (settings.prefetched) {
           result = settings.prefetched;
         } else {
-          const fetched = await fetchFeedDocument(feedUrl);
+          const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
           result = parseFeed(fetched.documentXml, panel.show, fetched.source, fetched.truncated);
         }
         if (token !== panel.loadToken) return;
