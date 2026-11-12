@@ -305,7 +305,7 @@
         const normalizeStoredEpisodes = (items, limit) => uniqueById(
           (Array.isArray(items) ? items : [])
             .filter(isRecord)
-            .map(item => normalizeEpisode(item))
+            .map(item => persistableEpisode(item))
             .filter(item => item.id)
         ).slice(0, limit);
         const library = [];
@@ -324,7 +324,7 @@
         const historyItems = (Array.isArray(saved.history) ? saved.history : []).filter(isRecord);
         const historyIds = new Set();
         const history = historyItems.map(item => {
-          const episode = normalizeEpisode(item);
+          const episode = persistableEpisode(item);
           if (!episode.id || historyIds.has(episode.id)) return null;
           historyIds.add(episode.id);
           return {...episode, playedAt: String(item.playedAt || "")};
@@ -339,7 +339,7 @@
           if (!isRecord(item) || !isRecord(item.episode)) continue;
           const currentTime = Number(item.currentTime), duration = Number(item.duration);
           if (!Number.isFinite(currentTime) || currentTime < 0 || !Number.isFinite(duration) || duration < 0) continue;
-          const episode = normalizeEpisode(item.episode);
+          const episode = persistableEpisode(item.episode);
           if (!episode.id || !episode.audioUrl) continue;
           const entry = {
             episode,
@@ -370,7 +370,7 @@
             if (/^[a-z][a-z0-9-]{0,80}$/i.test(key) && typeof value === "boolean") expandedSections[key] = value;
           }
         }
-        const currentEpisode = isRecord(saved.currentEpisode) ? normalizeEpisode(saved.currentEpisode) : null;
+        const currentEpisode = isRecord(saved.currentEpisode) ? persistableEpisode(saved.currentEpisode) : null;
         const validCurrentEpisode = currentEpisode && currentEpisode.audioUrl ? currentEpisode : null;
         const currentTime = Number(saved.currentTime);
         const rate = Number(saved.playbackRate);
@@ -491,7 +491,7 @@
     }
 
     function safeHttpUrl(value, baseUrl) {
-      if (typeof value !== "string" || !value.trim()) return "";
+      if (typeof value !== "string" || !value.trim() || value.length > 4096) return "";
       try {
         const parsed = baseUrl ? new URL(value.trim(), baseUrl) : new URL(value.trim());
         return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
@@ -516,7 +516,8 @@
     }
 
     function normalizeShow(raw) {
-      const suppliedId = raw.id != null ? String(raw.id) : "";
+      const rawSuppliedId = raw.id != null ? String(raw.id) : "";
+      const suppliedId = rawSuppliedId.length > 250 ? rawSuppliedId.slice(0, 200) + "-" + simpleHash(rawSuppliedId) : rawSuppliedId;
       // Podcast Index IDs are also numeric. Only explicit Apple fields or an
       // existing apple-<id> value may be treated as an Apple catalogue ID.
       const appleIdValue = raw.appleId != null ? raw.appleId :
@@ -524,10 +525,11 @@
           (raw.itunesId != null ? raw.itunesId :
             (raw.trackId != null ? raw.trackId :
               (/^apple-\d+$/.test(suppliedId) ? suppliedId.slice(6) : ""))));
-      const appleId = appleIdValue === "" ? "" : String(appleIdValue);
+      const appleIdCandidate = appleIdValue === "" ? "" : String(appleIdValue);
+      const appleId = /^\d{1,20}$/.test(appleIdCandidate) ? appleIdCandidate : "";
       const feedUrl = safeHttpUrl(raw.feedUrl || raw.feedURL || raw.originalUrl || raw.url || "");
-      const title = String(raw.title || raw.collectionName || raw.trackName || "Untitled Podcast").trim();
-      const artist = String(raw.artist || raw.artistName || raw.author || raw.ownerName || "").trim();
+      const title = String(raw.title || raw.collectionName || raw.trackName || "Untitled Podcast").trim().slice(0, 300);
+      const artist = String(raw.artist || raw.artistName || raw.author || raw.ownerName || "").trim().slice(0, 250);
       const artwork = safeHttpUrl(raw.artwork || raw.artworkUrl600 || raw.artworkUrl160 || raw.artworkUrl100 || raw.image || "");
       const appleUrl = safeHttpUrl(raw.appleUrl || raw.collectionViewUrl || raw.trackViewUrl || "");
       const existingStableId = /^(apple-\d+|feed-[a-f0-9]+)$/.test(suppliedId) ? suppliedId : "";
@@ -537,8 +539,8 @@
         const value = String(source || "").toLowerCase();
         if (value.includes("podcastindex") || value.includes("podcast index")) return "Podcast Index";
         if (value.includes("apple") || value === "itunes") return "Apple Podcasts";
-        return String(source || "").trim();
-      }).filter(Boolean))];
+        return String(source || "").trim().slice(0, 80);
+      }).filter(Boolean)).slice(0, 10)];
       return {
         id: stableId,
         appleId,
@@ -550,7 +552,7 @@
         latestEpisodeDate: Number.isFinite(Date.parse(raw.latestEpisodeDate)) ? new Date(raw.latestEpisodeDate).toISOString() : "",
         feedCheckedAt: nonnegativeNumber(raw.feedCheckedAt),
         trackCount: Math.floor(nonnegativeNumber(raw.trackCount)),
-        description: String(raw.description || "").slice(0, 5000),
+        description: String(raw.description || "").slice(0, 500),
         sources
       };
     }
@@ -566,19 +568,21 @@
     }
 
     function normalizeEpisode(raw) {
+      const rawId = String(raw.id || simpleHash([raw.audioUrl, raw.title, raw.date].join("|")));
+      const id = rawId.length > 250 ? rawId.slice(0, 200) + "-" + simpleHash(rawId) : rawId;
       return {
-        id: String(raw.id || simpleHash([raw.audioUrl, raw.title, raw.date].join("|"))),
-        title: String(raw.title || "Untitled Episode"),
-        showId: String(raw.showId || ""),
-        showTitle: String(raw.showTitle || "Unknown Podcast"),
+        id,
+        title: String(raw.title || "Untitled Episode").slice(0, 300),
+        showId: String(raw.showId || "").slice(0, 250),
+        showTitle: String(raw.showTitle || "Unknown Podcast").slice(0, 300),
         showArtwork: safeHttpUrl(raw.showArtwork || ""),
         feedUrl: safeHttpUrl(raw.feedUrl || ""),
         audioUrl: safeHttpUrl(raw.audioUrl || ""),
         mediaType: raw.mediaType === "video" ? "video" : "audio",
         fallbackAudioUrl: safeHttpUrl(raw.fallbackAudioUrl || ""),
         link: safeHttpUrl(raw.link || ""),
-        date: String(raw.date || ""),
-        duration: String(raw.duration || ""),
+        date: String(raw.date || "").slice(0, 100),
+        duration: String(raw.duration || "").slice(0, 50),
         description: String(raw.description || "").slice(0, 3000),
         image: safeHttpUrl(raw.image || ""),
         fileSize: Math.floor(nonnegativeNumber(raw.fileSize))
@@ -870,7 +874,7 @@
     }
 
     function recordDiagnostic(feedUrl, message, kind) {
-      const entry = {feedUrl: safeHttpUrl(feedUrl), message: String(message || "Unknown feed error"), kind: kind || "error", at: new Date().toISOString()};
+      const entry = {feedUrl: safeHttpUrl(feedUrl), message: String(message || "Unknown feed error").slice(0, 1000), kind: String(kind || "error").slice(0, 100), at: new Date().toISOString()};
       state.diagnostics = [entry, ...(state.diagnostics || [])].slice(0, 100);
       renderDiagnostics();
       saveState();
@@ -1750,7 +1754,11 @@
     }
 
     function persistableEpisode(episode) {
-      return normalizeEpisode(episode);
+      const normalized = normalizeEpisode(episode);
+      // Long descriptions remain available in the live feed panel. Saved copies
+      // only need a short excerpt for restoration and backup portability.
+      normalized.description = normalized.description.slice(0, 300);
+      return normalized;
     }
 
     function addToQueue(episode) {
