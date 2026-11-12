@@ -599,10 +599,16 @@ test("retries a transient feed failure and succeeds when the publisher recovers"
 
 
 test("retries a transient failure when refreshing an already subscribed feed", async ({ page }) => {
+  await addFeed(page, RSS_URL, RSS);
+  await expect(page.locator("#library-list")).toContainText("Episode Two");
+
+  // Replace the add-feed mock so the refresh requests are counted independently.
+  await page.unroute(RSS_URL);
   let directAttempts = 0;
+  let proxyAttempts = 0;
   await page.route(RSS_URL, route => {
     directAttempts += 1;
-    if (directAttempts === 2) return route.fulfill({ status: 503, body: "Temporary publisher failure" });
+    if (directAttempts === 1) return route.fulfill({ status: 503, body: "Temporary publisher failure" });
     return route.fulfill({
       status: 200,
       contentType: "application/xml",
@@ -610,13 +616,17 @@ test("retries a transient failure when refreshing an already subscribed feed", a
       body: RSS
     });
   });
-  await page.route("https://proxy.cors.dev/**", route => route.fulfill({ status: 503, body: "Proxy unavailable" }));
-  await addFeed(page, RSS_URL, RSS);
+  await page.route("https://proxy.cors.dev/**", route => {
+    proxyAttempts += 1;
+    return route.fulfill({ status: 503, body: "Proxy unavailable" });
+  });
+
   const refresh = page.getByRole("button", { name: "Refresh Episodes" });
   await refresh.click();
   await expect(page.locator("#library-list")).toContainText("Episode Two");
   await expect(page.locator("#library-list")).toContainText("Feed loaded directly");
-  expect(directAttempts).toBe(3);
+  expect(directAttempts).toBe(2);
+  expect(proxyAttempts).toBe(1);
 });
 
 test("reorders and removes episodes in the playback queue", async ({ page }) => {
