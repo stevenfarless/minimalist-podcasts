@@ -210,6 +210,26 @@ test("bounds saved descriptions and metadata before writing browser storage", as
   expect(saved.currentEpisode.description).toHaveLength(300);
 });
 
+test("does not merge catalogue results whose feed paths differ by case", async ({ page }) => {
+  const merged = await page.evaluate(() => window.mergeSearchResults(
+    [{
+      id: "feed-upper",
+      title: "Case Sensitive Podcast",
+      artist: "Test Publisher",
+      feedUrl: "https://feeds.example.test/Shows/Podcast.xml",
+      sources: ["Apple Podcasts"]
+    }],
+    [{
+      id: "feed-lower",
+      title: "Case Sensitive Podcast",
+      artist: "Test Publisher",
+      feedUrl: "https://feeds.example.test/shows/podcast.xml",
+      sources: ["Podcast Index"]
+    }]
+  ));
+  expect(merged).toHaveLength(2);
+});
+
 test("formats valid podcast durations and leaves malformed time fields unchanged", async ({ page }) => {
   const results = await page.evaluate(() => [
     window.formatDuration("90:00"),
