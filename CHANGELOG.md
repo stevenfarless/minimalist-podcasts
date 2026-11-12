@@ -4,6 +4,8 @@
 
 - Remove the Latest Episodes section and its related filtering and sorting functionality.
 - Fall back to an episode's audio enclosure when native video playback fails and the feed provides an audio alternative.
+- Retry transient failures from the individual feed refresh action.
+- Reset both native media elements when restoring a backup that clears the current episode.
 - Synchronize the README and package metadata with the application version.
 
 ## 2.1.2
