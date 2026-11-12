@@ -628,6 +628,63 @@ test("merges Apple Podcasts and Podcast Index results without duplicate feed ent
   await expect(page.locator("#search-results")).toContainText("Index-Only Podcast");
 });
 
+test("looks up the feed URL for Apple search results that omit it", async ({ page }) => {
+  await page.route("https://itunes.apple.com/search?**", route => {
+    const requestUrl = new URL(route.request().url());
+    const callback = requestUrl.searchParams.get("callback");
+    return route.fulfill({
+      contentType: "application/javascript",
+      body: callback + "(" + JSON.stringify({
+        results: [{
+          kind: "podcast",
+          trackId: 987654,
+          trackName: "Apple Lookup Podcast",
+          artistName: "Lookup Creator"
+        }]
+      }) + ");"
+    });
+  });
+  await page.route("https://itunes.apple.com/lookup?**", route => {
+    const requestUrl = new URL(route.request().url());
+    expect(requestUrl.searchParams.get("id")).toBe("987654");
+    const callback = requestUrl.searchParams.get("callback");
+    return route.fulfill({
+      contentType: "application/javascript",
+      body: callback + "(" + JSON.stringify({
+        results: [{ collectionName: "Apple Lookup Podcast", feedUrl: RSS_URL }]
+      }) + ");"
+    });
+  });
+  await page.route("https://search.pinepods.online/api/search?**", route => route.abort());
+  await page.route(RSS_URL, route => route.fulfill({
+    status: 200,
+    contentType: "application/xml; charset=utf-8",
+    headers: { "access-control-allow-origin": "*" },
+    body: RSS
+  }));
+
+  await page.locator("#search-query").fill("Apple Lookup Podcast");
+  await page.getByRole("button", { name: "Search Podcasts" }).click();
+  await expect(page.locator("#search-results")).toContainText("Apple Lookup Podcast");
+  await page.locator("#search-results").getByRole("button", { name: "View Episodes" }).click();
+  await expect(page.locator("#search-results")).toContainText("Episode One");
+});
+
+test("retains the newest played episode IDs and keeps the collection bounded", async ({ page }) => {
+  const playedIds = Array.from({ length: 5001 }, (_, index) => "played-" + index);
+  await page.addInitScript(([key, value]) => {
+    localStorage.setItem(key, value);
+  }, [STORAGE_KEY, JSON.stringify({ playedEpisodeIds: playedIds })]);
+  await page.reload();
+  await addFeed(page, RSS_URL, RSS);
+  const episode = page.locator("#library-list li[data-episode-id]").filter({ hasText: "Episode One" });
+  await episode.getByRole("button", { name: "Mark Played" }).click();
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.playedEpisodeIds).toHaveLength(5000);
+  expect(saved.playedEpisodeIds).toContain("played-5000");
+  expect(saved.playedEpisodeIds).not.toContain("played-0");
+});
+
 test("keeps Podcast Index search results available when Apple Podcasts is unavailable", async ({ page }) => {
   await page.route("https://itunes.apple.com/search?**", route => route.abort());
   await page.route("https://search.pinepods.online/api/search?**", route => route.fulfill({
