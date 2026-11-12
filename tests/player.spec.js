@@ -515,6 +515,31 @@ test("rejects a non-streaming multibyte feed that exceeds the byte limit", async
   await expect(page.locator("#library-list")).not.toContainText("Oversized Unicode Feed");
 });
 
+test("does not load remote resources embedded in publisher descriptions", async ({ page }) => {
+  let trackingRequests = 0;
+  await page.route("https://tracker.example.test/**", async route => {
+    trackingRequests += 1;
+    await route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from([]) });
+  });
+  const url = "https://feeds.example.test/tracking-description.xml";
+  const feed = `<?xml version="1.0"?>
+  <rss version="2.0"><channel>
+    <title>Privacy Test Podcast</title>
+    <description><![CDATA[<img src="https://tracker.example.test/show.png" alt="Show tracking image">Show description text]]></description>
+    <item><guid>privacy-one</guid><title>Privacy Episode</title>
+      <enclosure url="https://media.example.test/privacy.mp3" type="audio/mpeg"/>
+      <description><![CDATA[<img src="https://tracker.example.test/episode.png" alt="Episode tracking image">Episode description text]]></description>
+    </item>
+  </channel></rss>`;
+  await addFeed(page, url, feed);
+  const row = page.locator("#library-list li[data-episode-id]");
+  await row.locator("details > summary").click();
+  await expect(row).toContainText("Episode description text");
+  await expect(page.locator("#library-list")).toContainText("Show description text");
+  await page.waitForTimeout(150);
+  expect(trackingRequests).toBe(0);
+});
+
 test("resolves relative episode media against the final URL after a feed redirect", async ({ page }) => {
   const requestedUrl = "http://127.0.0.1:4173/__test__/redirect-feed.xml";
   await openSection(page, "rss-section");
