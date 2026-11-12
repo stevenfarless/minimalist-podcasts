@@ -2,6 +2,10 @@
 
 ## 2.2.0
 
+- Bound feed text, URLs, titles, descriptions, diagnostic messages, and identifiers before parsing or persistence to limit oversized publisher metadata.
+- Keep saved episode description excerpts short so large queues and favorites remain within common browser storage quotas while live feed panels retain fuller descriptions.
+- Reject malformed minute and second fields when formatting podcast durations.
+
 - Normalize duplicate played-episode IDs before applying the 5,000-entry cap, and enforce collection limits during additions and backup merges.
 - Keep backup subscription indexes synchronized when feed addresses change, preventing a later subscription from overwriting the wrong show.
 - Resolve relative RSS/Atom artwork and media links against the feed address, including the final URL after an HTTP redirect.
