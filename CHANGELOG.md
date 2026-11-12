@@ -13,7 +13,8 @@
 - Ignore stale media metadata events before applying saved playback positions.
 - Trim oversized feeds with an XML-aware scanner that ignores closing-tag text inside CDATA, comments, processing instructions, and quoted attributes.
 - Avoid rebuilding unrelated episode panels and batch large episode/library DOM insertions with document fragments.
-- Bound saved podcast descriptions and reject non-finite numeric metadata before persisting it.
+- Reject non-finite numeric metadata before persisting it.
+- Preserve case-sensitive feed paths when deduplicating catalogue results.
 
 - Remove the Latest Episodes section and its related filtering and sorting functionality.
 - Fall back to an episode's audio enclosure when native video playback fails and the feed provides an audio alternative.
