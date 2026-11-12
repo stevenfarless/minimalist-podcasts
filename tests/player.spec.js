@@ -67,6 +67,55 @@ const HISTORY_FIXTURE = {
 const PLAYED_IDS_FIXTURE = {
   playedEpisodeIds: [...Array.from({ length: 5000 }, (_, index) => "played-" + index), "played-0"]
 };
+const COMPACT_STORAGE_FIXTURE = {
+  library: [{
+    id: "compact-show",
+    title: "Compact Show",
+    feedUrl: "https://feeds.example.test/compact.xml",
+    description: "s".repeat(5000)
+  }],
+  queue: [{
+    id: "compact-queue",
+    title: "Queue Episode",
+    showTitle: "Compact Show",
+    audioUrl: "https://media.example.test/queue.mp3",
+    description: "q".repeat(3000)
+  }],
+  favorites: [{
+    id: "compact-favorite",
+    title: "Favorite Episode",
+    showTitle: "Compact Show",
+    audioUrl: "https://media.example.test/favorite.mp3",
+    description: "f".repeat(3000)
+  }],
+  history: [{
+    id: "compact-history",
+    title: "History Episode",
+    showTitle: "Compact Show",
+    audioUrl: "https://media.example.test/history.mp3",
+    description: "h".repeat(3000),
+    playedAt: "2026-11-10T01:00:00Z"
+  }],
+  inProgress: [{
+    episode: {
+      id: "compact-progress",
+      title: "Progress Episode",
+      showTitle: "Compact Show",
+      audioUrl: "https://media.example.test/progress.mp3",
+      description: "p".repeat(3000)
+    },
+    currentTime: 10,
+    duration: 100,
+    updatedAt: "2026-11-10T02:00:00Z"
+  }],
+  currentEpisode: {
+    id: "compact-current",
+    title: "Current Episode",
+    showTitle: "Compact Show",
+    audioUrl: "https://media.example.test/current.mp3",
+    description: "c".repeat(3000)
+  }
+};
 const BACKUP_INDEX_FIXTURE = {
   library: [{
     appleId: 111,
@@ -144,7 +193,21 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.title === "updates a subscription feed address without retaining a stale merge index") {
     await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(BACKUP_INDEX_FIXTURE)]);
   }
+  if (testInfo.title === "bounds saved descriptions and metadata before writing browser storage") {
+    await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORAGE_KEY, JSON.stringify(COMPACT_STORAGE_FIXTURE)]);
+  }
   await page.goto("/");
+});
+
+test("bounds saved descriptions and metadata before writing browser storage", async ({ page }) => {
+  await page.locator("#history-section").evaluate(section => section.dispatchEvent(new Event("toggle")));
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library[0].description).toHaveLength(500);
+  expect(saved.queue[0].description).toHaveLength(300);
+  expect(saved.favorites[0].description).toHaveLength(300);
+  expect(saved.history[0].description).toHaveLength(300);
+  expect(saved.inProgress[0].episode.description).toHaveLength(300);
+  expect(saved.currentEpisode.description).toHaveLength(300);
 });
 
 test("normalizes malformed local storage without crashing or retaining invalid records", async ({ page }) => {
