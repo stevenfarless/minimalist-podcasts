@@ -861,7 +861,9 @@
             throw new Error("Feed response exceeds the " + (MAX_FEED_BYTES / 1048576) + " MB size limit in this browser.");
           }
         }
-        return truncated ? {text: truncateFeedText(text), truncated: true} : {text, truncated: false};
+        return truncated
+          ? {text: truncateFeedText(text), truncated: true, responseUrl: response.url || url}
+          : {text, truncated: false, responseUrl: response.url || url};
       } finally {
         clearTimeout(timeout);
       }
@@ -904,14 +906,14 @@
       let directError = null;
       try {
         const direct = await fetchTextWithTimeout(url, 12000);
-        return {...parseXmlDocument(direct.text), source: "direct", truncated: direct.truncated};
+        return {...parseXmlDocument(direct.text), source: "direct", truncated: direct.truncated, baseUrl: direct.responseUrl || url};
       } catch (error) {
         directError = error;
       }
 
       try {
         const proxied = await fetchTextWithTimeout(RSS_PROXY_PREFIX + url, 35000);
-        return {...parseXmlDocument(proxied.text), source: "proxy", truncated: proxied.truncated};
+        return {...parseXmlDocument(proxied.text), source: "proxy", truncated: proxied.truncated, baseUrl: url};
       } catch (proxyError) {
         const reason = proxyError && proxyError.message ? proxyError.message : "unknown error";
         const directReason = directError && directError.message ? directError.message : "direct feed request failed";
@@ -971,25 +973,26 @@
       return content ? content.textContent || "" : "";
     }
 
-    function parseFeed(documentXml, show, source, truncated, sourceEntries) {
+    function parseFeed(documentXml, show, source, truncated, sourceEntries, baseUrl) {
+      const documentBaseUrl = safeHttpUrl(baseUrl) || show.feedUrl;
       const root = documentXml.documentElement;
       const channel = allByLocalName(documentXml, "channel")[0] || root;
       const title = directTagText(channel, ["title"]) || show.title;
       const author = directTagText(channel, ["author", "creator", "managingEditor"]) || show.artist;
       const description = cleanHtmlToText(directTagText(channel, ["description", "subtitle", "summary"])) || show.description;
-      const image = directFeedImage(channel, show.feedUrl) || show.artwork;
+      const image = directFeedImage(channel, documentBaseUrl) || show.artwork;
       const actualShow = {...show, title, artist: author, description, artwork: image};
       const episodes = sourceEntries.map((entry, index) => {
         const titleText = tagText(entry, ["title"]) || "Untitled Episode";
         const date = tagText(entry, ["pubDate", "published", "updated", "date"]);
         const guid = tagText(entry, ["guid", "id"]);
-        const media = extractEpisodeMedia(entry, show.feedUrl);
+        const media = extractEpisodeMedia(entry, documentBaseUrl);
         const audioUrl = media.url;
         const enclosureLinks = allByLocalName(entry, "link").filter(node => String(node.getAttribute("rel") || "").toLowerCase() === "enclosure");
         const enclosureNodes = enclosureLinks.concat(allByLocalName(entry, "enclosure"), allByLocalName(entry, "content"), allByLocalName(entry, "alternateenclosure"));
         const enclosure = enclosureNodes.find(node => {
           const source = directChild(node, ["source"]);
-          const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || (source && (source.getAttribute("uri") || source.getAttribute("url"))) || "", show.feedUrl);
+          const url = safeHttpUrl(node.getAttribute("url") || node.getAttribute("href") || node.getAttribute("src") || (source && (source.getAttribute("uri") || source.getAttribute("url"))) || "", documentBaseUrl);
           return url && url === audioUrl;
         }) || null;
         const duration = tagText(entry, ["duration"]);
@@ -999,8 +1002,8 @@
           const rel = String(node.getAttribute("rel") || "").toLowerCase();
           return !rel || rel === "alternate" || rel.endsWith("/alternate");
         });
-        const link = pageLink ? safeHttpUrl(pageLink.getAttribute("href") || pageLink.textContent.trim(), show.feedUrl) : "";
-        const episodeImage = attributeFromImage(entry, show.feedUrl) || image;
+        const link = pageLink ? safeHttpUrl(pageLink.getAttribute("href") || pageLink.textContent.trim(), documentBaseUrl) : "";
+        const episodeImage = attributeFromImage(entry, documentBaseUrl) || image;
         const fileSize = enclosure ? Number(enclosure.getAttribute("length")) || 0 : 0;
         const idSeed = guid ? "guid:" + guid : (audioUrl ? "audio:" + audioUrl : "meta:" + titleText + "|" + date + "|" + index);
         return normalizeEpisode({
@@ -1554,7 +1557,7 @@
           result = settings.prefetched;
         } else {
           const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
-          result = parseFeed(fetched.documentXml, panel.show, fetched.source, fetched.truncated, fetched.entries);
+          result = parseFeed(fetched.documentXml, panel.show, fetched.source, fetched.truncated, fetched.entries, fetched.baseUrl);
         }
         if (token !== panel.loadToken) return;
         cacheFeed(feedUrl, result);
@@ -2101,7 +2104,7 @@
       setStatus(elements.rssStatus, "Reading feed and adding the podcast…");
       try {
         const fetched = await retryTransient(() => fetchFeedDocument(feedUrl), 2);
-        const parsed = parseFeed(fetched.documentXml, show, fetched.source, fetched.truncated, fetched.entries);
+        const parsed = parseFeed(fetched.documentXml, show, fetched.source, fetched.truncated, fetched.entries, fetched.baseUrl);
         if (!parsed.episodes.length) throw new Error("The feed opened, but it did not contain any podcast episodes.");
         if (!subscribeShow(parsed.show)) {
           setStatus(elements.rssStatus, "Your library has reached the " + MAX_SUBSCRIPTIONS + "-podcast limit.", true);
