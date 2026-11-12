@@ -2339,7 +2339,8 @@
               const feedOwner = mergedLibrary[feedOwnerIndex];
               const ownerUpdate = feedOwner && incomingById.get(feedOwner.id);
               const ownerWillMove = ownerUpdate && ownerUpdate.feedUrl !== show.feedUrl;
-              if (!ownerWillMove) updated.feedUrl = existing.feedUrl;
+              if (ownerWillMove) subscriptionIndexesByFeed.set(show.feedUrl, index);
+              else updated.feedUrl = existing.feedUrl;
             }
             if (existing.feedUrl && existing.feedUrl !== updated.feedUrl && subscriptionIndexesByFeed.get(existing.feedUrl) === index) {
               subscriptionIndexesByFeed.delete(existing.feedUrl);
