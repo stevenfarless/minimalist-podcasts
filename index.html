@@ -199,6 +199,10 @@
     const STORAGE_KEY = "plain-html-podcast-player-v1";
     const MAX_HISTORY = 30;
     const MAX_PLAYED_EPISODES = 5000;
+    const MAX_SUBSCRIPTIONS = 1000;
+    const MAX_QUEUE_EPISODES = 1000;
+    const MAX_FAVORITE_EPISODES = 1000;
+    const MAX_IN_PROGRESS_EPISODES = 200;
     const MAX_FEED_BYTES = 10 * 1024 * 1024;
     const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
     const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -315,8 +319,8 @@
           if (show.feedUrl) feedUrls.add(show.feedUrl);
           if (library.length >= 1000) break;
         }
-        const queue = normalizeStoredEpisodes(saved.queue, 1000).filter(item => item.audioUrl);
-        const favorites = normalizeStoredEpisodes(saved.favorites, 1000);
+        const queue = normalizeStoredEpisodes(saved.queue, MAX_QUEUE_EPISODES).filter(item => item.audioUrl);
+        const favorites = normalizeStoredEpisodes(saved.favorites, MAX_FAVORITE_EPISODES);
         const historyItems = (Array.isArray(saved.history) ? saved.history : []).filter(isRecord);
         const historyIds = new Set();
         const history = historyItems.map(item => {
@@ -326,8 +330,10 @@
           return {...episode, playedAt: String(item.playedAt || "")};
         }).filter(Boolean).slice(0, MAX_HISTORY);
         const playedIds = Array.isArray(saved.playedEpisodeIds)
-          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim()).slice(-MAX_PLAYED_EPISODES)
+          ? saved.playedEpisodeIds.filter(id => typeof id === "string" && id.trim())
           : history.map(item => item.id);
+        // Keep the latest occurrence of each ID before applying the collection cap.
+        const normalizedPlayedIds = [...new Set(playedIds.reverse())].reverse().slice(-MAX_PLAYED_EPISODES);
         const progressByEpisode = new Map();
         for (const item of (Array.isArray(saved.inProgress) ? saved.inProgress : [])) {
           if (!isRecord(item) || !isRecord(item.episode)) continue;
@@ -348,7 +354,7 @@
         }
         const inProgress = [...progressByEpisode.values()]
           .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
-          .slice(0, 200);
+          .slice(0, MAX_IN_PROGRESS_EPISODES);
         const diagnostics = (Array.isArray(saved.diagnostics) ? saved.diagnostics : [])
           .filter(isRecord)
           .map(item => ({
@@ -373,7 +379,7 @@
           queue,
           favorites,
           history,
-          playedEpisodeIds: [...new Set(playedIds)].slice(-MAX_PLAYED_EPISODES),
+          playedEpisodeIds: normalizedPlayedIds,
           inProgress,
           diagnostics,
           expandedSections,
@@ -503,6 +509,11 @@
       return link;
     }
 
+    function nonnegativeNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) && number > 0 ? number : 0;
+    }
+
     function normalizeShow(raw) {
       const suppliedId = raw.id != null ? String(raw.id) : "";
       // Podcast Index IDs are also numeric. Only explicit Apple fields or an
@@ -536,9 +547,9 @@
         artwork,
         appleUrl,
         latestEpisodeDate: Number.isFinite(Date.parse(raw.latestEpisodeDate)) ? new Date(raw.latestEpisodeDate).toISOString() : "",
-        feedCheckedAt: Number(raw.feedCheckedAt) > 0 ? Number(raw.feedCheckedAt) : 0,
-        trackCount: Number(raw.trackCount) || 0,
-        description: String(raw.description || ""),
+        feedCheckedAt: nonnegativeNumber(raw.feedCheckedAt),
+        trackCount: Math.floor(nonnegativeNumber(raw.trackCount)),
+        description: String(raw.description || "").slice(0, 5000),
         sources
       };
     }
@@ -569,7 +580,7 @@
         duration: String(raw.duration || ""),
         description: String(raw.description || "").slice(0, 3000),
         image: safeHttpUrl(raw.image || ""),
-        fileSize: Number(raw.fileSize) || 0
+        fileSize: Math.floor(nonnegativeNumber(raw.fileSize))
       };
     }
 
@@ -651,31 +662,31 @@
       return node ? String(node.textContent || "").trim() : "";
     }
 
-    function directFeedImage(parent) {
+    function directFeedImage(parent, baseUrl) {
       const image = directChild(parent, ["image"]);
       if (image) {
         const href = image.getAttribute("href") || image.getAttribute("url");
-        if (safeHttpUrl(href)) return safeHttpUrl(href);
+        if (safeHttpUrl(href, baseUrl)) return safeHttpUrl(href, baseUrl);
         const nestedUrl = directTagText(image, ["url"]);
-        if (safeHttpUrl(nestedUrl)) return safeHttpUrl(nestedUrl);
+        if (safeHttpUrl(nestedUrl, baseUrl)) return safeHttpUrl(nestedUrl, baseUrl);
       }
-      const logo = directTagText(parent, ["logo"]);
-      if (safeHttpUrl(logo)) return safeHttpUrl(logo);
+      const logo = directTagText(parent, ["logo", "icon"]);
+      if (safeHttpUrl(logo, baseUrl)) return safeHttpUrl(logo, baseUrl);
       const thumbnail = directChild(parent, ["thumbnail"]);
-      return thumbnail ? safeHttpUrl(thumbnail.getAttribute("url") || "") : "";
+      return thumbnail ? safeHttpUrl(thumbnail.getAttribute("url") || "", baseUrl) : "";
     }
 
-    function attributeFromImage(parent) {
+    function attributeFromImage(parent, baseUrl) {
       const imageNodes = allByLocalName(parent, "image");
       for (const node of imageNodes) {
         const href = node.getAttribute("href") || node.getAttribute("url");
-        if (safeHttpUrl(href)) return safeHttpUrl(href);
+        if (safeHttpUrl(href, baseUrl)) return safeHttpUrl(href, baseUrl);
         const nestedUrl = tagText(node, ["url"]);
-        if (safeHttpUrl(nestedUrl)) return safeHttpUrl(nestedUrl);
+        if (safeHttpUrl(nestedUrl, baseUrl)) return safeHttpUrl(nestedUrl, baseUrl);
       }
       const thumbnails = allByLocalName(parent, "thumbnail");
       for (const node of thumbnails) {
-        const url = safeHttpUrl(node.getAttribute("url") || "");
+        const url = safeHttpUrl(node.getAttribute("url") || "", baseUrl);
         if (url) return url;
       }
       return "";
@@ -901,7 +912,7 @@
       const title = directTagText(channel, ["title"]) || show.title;
       const author = directTagText(channel, ["author", "creator", "managingEditor"]) || show.artist;
       const description = cleanHtmlToText(directTagText(channel, ["description", "subtitle", "summary"])) || show.description;
-      const image = directFeedImage(channel) || show.artwork;
+      const image = directFeedImage(channel, show.feedUrl) || show.artwork;
       const actualShow = {...show, title, artist: author, description, artwork: image};
       const episodes = sourceEntries.map((entry, index) => {
         const titleText = tagText(entry, ["title"]) || "Untitled Episode";
@@ -924,7 +935,7 @@
           return !rel || rel === "alternate" || rel.endsWith("/alternate");
         });
         const link = pageLink ? safeHttpUrl(pageLink.getAttribute("href") || pageLink.textContent.trim(), show.feedUrl) : "";
-        const episodeImage = attributeFromImage(entry) || image;
+        const episodeImage = attributeFromImage(entry, show.feedUrl) || image;
         const fileSize = enclosure ? Number(enclosure.getAttribute("length")) || 0 : 0;
         const idSeed = guid ? "guid:" + guid : (audioUrl ? "audio:" + audioUrl : "meta:" + titleText + "|" + date + "|" + index);
         return normalizeEpisode({
@@ -1171,6 +1182,10 @@
         return;
       }
       const existingIndex = state.library.findIndex(item => item.id === normalized.id || (normalized.feedUrl && item.feedUrl === normalized.feedUrl));
+      if (existingIndex < 0 && state.library.length >= MAX_SUBSCRIPTIONS) {
+        setStatus(elements.playerStatus, "Your library has reached the " + MAX_SUBSCRIPTIONS + "-podcast limit. Remove a subscription before adding another.", true);
+        return;
+      }
       if (existingIndex >= 0) {
         const existing = state.library[existingIndex];
         state.library[existingIndex] = {...existing, ...normalized, id: existing.id};
@@ -1441,6 +1456,7 @@
 
       try {
         const feedUrl = await lookupAppleFeed(normalized);
+        if (token !== panel.loadToken) return;
         if (!feedUrl) throw new Error("Apple did not provide an RSS feed URL for this show. Try adding its public feed address manually.");
         panel.show = {...normalized, feedUrl};
         const savedShow = state.library.find(item => item.id === normalized.id);
@@ -1649,6 +1665,10 @@
         setStatus(elements.playerStatus, "That episode is already in the queue.");
         return;
       }
+      if (state.queue.length >= MAX_QUEUE_EPISODES) {
+        setStatus(elements.playerStatus, "Your queue has reached the " + MAX_QUEUE_EPISODES + "-episode limit.", true);
+        return;
+      }
       state.queue.push(normalized);
       saveState();
       renderQueue();
@@ -1825,10 +1845,10 @@
 
     function updateProgress(episode, currentTime, duration) {
       if (!episode || episodeHasBeenPlayed(episode)) return;
-      const entry = {episode: persistableEpisode(episode), currentTime: Math.max(0, Number(currentTime) || 0), duration: Math.max(0, Number(duration) || 0), updatedAt: new Date().toISOString()};
+      const entry = {episode: persistableEpisode(episode), currentTime: nonnegativeNumber(currentTime), duration: nonnegativeNumber(duration), updatedAt: new Date().toISOString()};
       state.inProgress = (state.inProgress || []).filter(item => item.episode.id !== episode.id);
       if (entry.currentTime > 0) state.inProgress.unshift(entry);
-      state.inProgress = state.inProgress.slice(0, 200);
+      state.inProgress = state.inProgress.slice(0, MAX_IN_PROGRESS_EPISODES);
       saveState();
       renderProgress();
     }
@@ -1853,7 +1873,9 @@
       }
       saveState();
       renderHistory(); renderProgress(); renderNowPlaying();
-      for (const panel of showPanels) if (panel.loaded) renderEpisodes(panel);
+      for (const panel of showPanels) {
+        if (panel.loaded && panel.episodes.some(item => item.id === normalized.id)) renderEpisodes(panel);
+      }
     }
 
     function recordHistory(episode) {
@@ -1889,17 +1911,22 @@
     }
 
     function toggleFavorite(episode) {
-      const index = state.favorites.findIndex(item => item.id === episode.id);
+      const normalized = persistableEpisode(episode);
+      const index = state.favorites.findIndex(item => item.id === normalized.id);
       if (index >= 0) {
         state.favorites.splice(index, 1);
       } else {
-        state.favorites.unshift(persistableEpisode(episode));
+        if (state.favorites.length >= MAX_FAVORITE_EPISODES) {
+          setStatus(elements.playerStatus, "Your saved episodes have reached the " + MAX_FAVORITE_EPISODES + "-episode limit.", true);
+          return;
+        }
+        state.favorites.unshift(normalized);
         elements.favoritesSection.open = true;
       }
       saveState();
       renderFavorites();
       for (const panel of showPanels) {
-        if (panel.loaded) renderEpisodes(panel);
+        if (panel.loaded && panel.episodes.some(item => item.id === normalized.id)) renderEpisodes(panel);
       }
     }
 
@@ -1963,7 +1990,7 @@
         renderSearchResults(search.results);
         const sourceSummary = "Apple: " + search.appleCount + "; Podcast Index: " + search.podcastIndexCount + "; duplicates merged: " + search.duplicateCount + ".";
         const partialWarning = search.failures.length ? " " + search.failures.join(" ") : "";
-        setStatus(elements.searchStatus, search.results.length + " unique podcasts with public feed addresses found. " + sourceSummary + partialWarning, search.failures.length > 0);
+        setStatus(elements.searchStatus, search.results.length + " unique podcasts found. " + sourceSummary + partialWarning, search.failures.length > 0);
       } catch (error) {
         if (token !== searchToken) return;
         setStatus(elements.searchStatus, error.message || "Podcast search failed. Check your internet connection and try again.", true);
@@ -2028,9 +2055,14 @@
       const existingFeedUrls = new Set(state.library.map(show => show.feedUrl).filter(Boolean));
       const existingShowIds = new Set(state.library.map(show => show.id));
       let added = 0;
+      let skippedByLimit = 0;
       for (const raw of imported) {
         const show = normalizeShow(raw);
         if (!existingFeedUrls.has(show.feedUrl) && !existingShowIds.has(show.id)) {
+          if (state.library.length >= MAX_SUBSCRIPTIONS) {
+            skippedByLimit += 1;
+            continue;
+          }
           state.library.push(show);
           existingFeedUrls.add(show.feedUrl);
           existingShowIds.add(show.id);
@@ -2038,7 +2070,9 @@
         }
       }
       saveState(); renderLibrary(); elements.librarySection.open = true;
-      setText(elements.opmlStatus, "Imported " + added + " new subscriptions. " + (imported.length - added) + " duplicates were skipped.");
+      const duplicateCount = imported.length - added - skippedByLimit;
+      setText(elements.opmlStatus, "Imported " + added + " new subscriptions. " + duplicateCount + " duplicates were skipped." +
+        (skippedByLimit ? " " + skippedByLimit + " were skipped because the " + MAX_SUBSCRIPTIONS + "-podcast library limit was reached." : ""));
     }
 
     function exportBackup() {
@@ -2078,8 +2112,8 @@
           return true;
         }).slice(0, limit);
       };
-      clean.queue = normalizeEpisodes(raw.queue, "queue", 1000, true);
-      clean.favorites = normalizeEpisodes(raw.favorites, "favorites", 1000, false);
+      clean.queue = normalizeEpisodes(raw.queue, "queue", MAX_QUEUE_EPISODES, true);
+      clean.favorites = normalizeEpisodes(raw.favorites, "favorites", MAX_FAVORITE_EPISODES, false);
       const historyIds = new Set();
       clean.history = (raw.history || []).map(item => {
         if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("The backup contains an invalid episode in history.");
@@ -2106,7 +2140,7 @@
       }
       clean.inProgress = [...progressByEpisode.values()]
         .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
-        .slice(0, 200);
+        .slice(0, MAX_IN_PROGRESS_EPISODES);
       if (raw.playedEpisodeIds != null && (!Array.isArray(raw.playedEpisodeIds) || raw.playedEpisodeIds.some(id => typeof id !== "string" || !id.trim()))) throw new Error("The backup contains invalid played-episode IDs.");
       clean.playedEpisodeIds = raw.playedEpisodeIds != null
         ? [...new Set(raw.playedEpisodeIds)].slice(-MAX_PLAYED_EPISODES)
@@ -2157,6 +2191,7 @@
           return [...map.values()];
         };
         const mergedLibrary = [...(state.library || [])];
+        let skippedSubscriptionsByLimit = 0;
         const subscriptionIndexesByFeed = new Map();
         const subscriptionIndexesById = new Map();
         mergedLibrary.forEach((show, index) => {
@@ -2169,11 +2204,18 @@
           if (index !== undefined) {
             const existing = mergedLibrary[index];
             const updated = {...existing, ...show, id: existing.id};
+            if (existing.feedUrl && existing.feedUrl !== updated.feedUrl) {
+              subscriptionIndexesByFeed.delete(existing.feedUrl);
+            }
             mergedLibrary[index] = updated;
             subscriptionIndexesById.set(updated.id, index);
             subscriptionIndexesById.set(show.id, index);
             if (updated.feedUrl) subscriptionIndexesByFeed.set(updated.feedUrl, index);
           } else {
+            if (mergedLibrary.length >= MAX_SUBSCRIPTIONS) {
+              skippedSubscriptionsByLimit += 1;
+              continue;
+            }
             const index = mergedLibrary.length;
             mergedLibrary.push(show);
             subscriptionIndexesById.set(show.id, index);
@@ -2181,7 +2223,9 @@
           }
         }
         state.library = mergedLibrary;
-        for (const key of ["queue", "favorites", "history"]) state[key] = mergeById(state[key], incoming[key]);
+        state.queue = mergeById(state.queue, incoming.queue).slice(0, MAX_QUEUE_EPISODES);
+        state.favorites = mergeById(state.favorites, incoming.favorites).slice(0, MAX_FAVORITE_EPISODES);
+        state.history = mergeById(state.history, incoming.history).slice(0, MAX_HISTORY);
         const progressByEpisode = new Map((state.inProgress || []).map(item => [item.episode.id, item]));
         for (const item of incoming.inProgress) {
           const id = item.episode.id, existing = progressByEpisode.get(id);
@@ -2199,7 +2243,12 @@
       playedEpisodeIdSet.clear();
       for (const id of state.playedEpisodeIds || []) playedEpisodeIdSet.add(id);
       saveState(); renderLibrary(); renderQueue(); renderFavorites(); renderHistory(); renderProgress(); renderDiagnostics(); restorePlayer();
-      setText(elements.backupStatus, elements.replaceBackup.checked ? "Backup restored, replacing current data." : "Backup merged with current data. Existing items were retained and duplicates combined.");
+      setText(elements.backupStatus, elements.replaceBackup.checked
+        ? "Backup restored, replacing current data."
+        : "Backup merged with current data. Existing items were retained and duplicates combined." +
+          (skippedSubscriptionsByLimit
+            ? " " + skippedSubscriptionsByLimit + " subscriptions were skipped because the " + MAX_SUBSCRIPTIONS + "-podcast library limit was reached."
+            : ""));
     }
 
     function removePlayedFromQueue() {
