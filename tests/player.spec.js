@@ -371,6 +371,54 @@ test("rejects a non-streaming multibyte feed that exceeds the byte limit", async
   await expect(page.locator("#library-list")).not.toContainText("Oversized Unicode Feed");
 });
 
+test("resolves relative feed and episode artwork against the feed address", async ({ page }) => {
+  const url = "https://feeds.example.test/artwork/podcast.xml";
+  const feed = `<?xml version="1.0"?>
+  <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+    <channel><title>Artwork Podcast</title><itunes:image href="images/show.jpg"/>
+      <item><guid>artwork-one</guid><title>Artwork Episode</title>
+        <enclosure url="https://media.example.test/artwork.mp3" type="audio/mpeg"/>
+        <itunes:image href="../episodes/episode.jpg"/>
+      </item>
+    </channel>
+  </rss>`;
+  await addFeed(page, url, feed);
+  await page.locator("#library-list").getByText("Artwork Episode", { exact: true }).click();
+  await page.getByRole("button", { name: "Play Episode" }).click();
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
+  expect(saved.library[0].artwork).toBe("https://feeds.example.test/artwork/images/show.jpg");
+  expect(saved.currentEpisode.image).toBe("https://feeds.example.test/episodes/episode.jpg");
+});
+
+test("ignores stale metadata events and waits for the selected media source before resuming", async ({ page }) => {
+  await page.evaluate(() => {
+    const player = document.querySelector("#audio-player");
+    Object.defineProperty(player, "duration", { configurable: true, value: 120 });
+    Object.defineProperty(player, "currentTime", { configurable: true, writable: true, value: 0 });
+    window.playEpisode({
+      id: "resume-target",
+      title: "Resume Target",
+      showTitle: "Playback Race Test",
+      audioUrl: "https://media.example.test/resume-target.mp3"
+    }, 45);
+    Object.defineProperty(player, "currentSrc", {
+      configurable: true,
+      value: "https://media.example.test/previous-episode.mp3"
+    });
+    player.dispatchEvent(new Event("loadedmetadata"));
+  });
+  expect(await page.locator("#audio-player").evaluate(player => player.currentTime)).toBe(0);
+  await page.evaluate(() => {
+    const player = document.querySelector("#audio-player");
+    Object.defineProperty(player, "currentSrc", {
+      configurable: true,
+      value: "https://media.example.test/resume-target.mp3"
+    });
+    player.dispatchEvent(new Event("loadedmetadata"));
+  });
+  expect(await page.locator("#audio-player").evaluate(player => player.currentTime)).toBe(45);
+});
+
 test("parses Atom enclosure links and resolves relative audio URLs", async ({ page }) => {
   await addFeed(page, ATOM_URL, ATOM);
   await expect(page.locator("#library-list")).toContainText("Atom Regression Podcast");
