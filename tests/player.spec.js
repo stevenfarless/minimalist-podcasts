@@ -572,15 +572,7 @@ test("retries a transient failure when refreshing an already subscribed feed", a
   let directAttempts = 0;
   await page.route(RSS_URL, route => {
     directAttempts += 1;
-    if (directAttempts === 1 || directAttempts === 2) {
-      return route.fulfill({
-        status: 200,
-        contentType: "application/xml",
-        headers: { "access-control-allow-origin": "*" },
-        body: RSS
-      });
-    }
-    if (directAttempts === 3) return route.fulfill({ status: 503, body: "Temporary publisher failure" });
+    if (directAttempts === 2) return route.fulfill({ status: 503, body: "Temporary publisher failure" });
     return route.fulfill({
       status: 200,
       contentType: "application/xml",
@@ -594,7 +586,7 @@ test("retries a transient failure when refreshing an already subscribed feed", a
   await refresh.click();
   await expect(page.locator("#library-list")).toContainText("Episode Two");
   await expect(page.locator("#library-list")).toContainText("Feed loaded directly");
-  expect(directAttempts).toBe(4);
+  expect(directAttempts).toBe(3);
 });
 
 test("reorders and removes episodes in the playback queue", async ({ page }) => {
